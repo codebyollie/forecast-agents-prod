@@ -85,7 +85,7 @@ class GammaClient:
             "Accept": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
-        transport = httpx.AsyncHTTPTransport(verify=False)
+        transport = httpx.AsyncHTTPTransport(verify=True)
         return httpx.AsyncClient(transport=transport, headers=headers, timeout=10.0)
 
     async def fetch_market(self, market_id: str) -> Optional[PolymarketMarket]:
@@ -206,4 +206,3 @@ class GammaClient:
             except Exception as e:
                 logger.warning(f"[GammaClient] public-search events failed for query '{query}': {e}")
         return []
-

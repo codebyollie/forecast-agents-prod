@@ -60,13 +60,18 @@ class ForecastPipeline:
         market_id: str = "custom_market",
         is_public_feed: bool = False,
         model_override: Optional[str] = None,
-        facts_key: Optional[str] = None
+        facts_key: Optional[str] = None,
+        venue: Optional[str] = None,
     ) -> ForecastResult:
         """
         Orchestrates full forecasting process.
         """
         # 1. Gather evidence
-        evidence = await self.source_manager.gather_evidence(question)
+        evidence = await self.source_manager.gather_evidence(
+            question,
+            market_id=market_id,
+            venue=venue,
+        )
 
         # 2. Query active agents in parallel
         active_agents = list(self.agents.values())
@@ -109,6 +114,16 @@ class ForecastPipeline:
         
         # 4. Attach model_used metadata reflecting reality
         result.metadata["model_used"] = model_override or getattr(self.config, "default_model", "gpt-4o")
+        result.metadata["market_context"] = [
+            {
+                "source": item.source_name,
+                "title": item.title,
+                "url": item.url,
+                "metadata": item.metadata,
+            }
+            for item in evidence
+            if item.source_name in ("kalshi", "polymarket")
+        ]
 
         # 5. Save to Memory (skip saving private forecast store if public feed, handled separately)
         if not is_public_feed:

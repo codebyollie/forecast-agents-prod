@@ -1,5 +1,11 @@
 *.pyc
 __pycache__/
+.env*
+!.env.example
+.venv/
+venv/
+dist/
+*.egg-info/
 records/
 wandb/
 memory_data/skills

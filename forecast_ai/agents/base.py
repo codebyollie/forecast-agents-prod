@@ -75,10 +75,14 @@ class ForecastAgent(ABC):
         )
         facts_ai_error = None
         agent_name = self.name.lower()
+        facts_ai_enabled = (
+            getattr(self.config.facts_ai, "enabled", False)
+            or os.getenv("FACTSAI_ENABLED", "").lower() in ("true", "1", "yes")
+        )
 
         # ── 1. FactsAI for Research / Macro / News ─────────────────────────
         facts_used = False
-        if agent_name in ("research", "macro", "news") and facts_key:
+        if agent_name in ("research", "macro", "news") and facts_ai_enabled and facts_key:
             try:
                 from ..sources.facts_ai import FactsAISource
                 facts_source = FactsAISource(

@@ -58,6 +58,10 @@ class FactsAISource(BaseSource):
                 
                 if resp.status_code == 200:
                     res_data = resp.json()
+                    if not isinstance(res_data, dict):
+                        raise FactsAIError(500, "FactsAI returned a non-object JSON response.")
+                    if res_data.get("success") is False:
+                        raise FactsAIError(500, str(res_data.get("error") or "FactsAI request failed."))
                     # Support both data.answer / data.citations and top-level response format
                     data_obj = res_data.get("data") if isinstance(res_data.get("data"), dict) else res_data
                     

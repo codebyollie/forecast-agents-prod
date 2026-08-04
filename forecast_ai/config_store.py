@@ -120,6 +120,8 @@ class ConfigStore:
                 pass
         if os.environ.get("SERVER_API_KEY"):
             config.server.api_key = os.environ["SERVER_API_KEY"]
+        if os.environ.get("MEMORY_STORE_DIR"):
+            config.memory.store_dir = os.environ["MEMORY_STORE_DIR"]
 
         # Default provider override
         if os.environ.get("DEFAULT_PROVIDER"):

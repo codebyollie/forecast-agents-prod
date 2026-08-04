@@ -72,8 +72,6 @@ class FactsAIConfig:
 class TavilyConfig:
     enabled: bool = False
     api_key: str = ""
-    enabled: bool = False
-    api_key: str = ""
 
 @dataclass
 class SourcesConfig:

@@ -28,7 +28,7 @@ class KalshiSource(BaseSource):
                     source_name="kalshi",
                     content=content,
                     url=f"https://kalshi.com/markets/{m.ticker}",
-                    score=0.85,
+                    relevance_score=0.85,
                     metadata={"ticker": m.ticker, "last_price": m.last_price, "volume": m.volume}
                 )
                 evidences.append(ev)

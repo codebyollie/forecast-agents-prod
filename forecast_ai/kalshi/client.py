@@ -88,7 +88,7 @@ class KalshiClient:
 
     async def fetch_markets(self, limit: int = 20, status: str = "open", series_ticker: Optional[str] = None, cursor: Optional[str] = None) -> Tuple[List[KalshiMarket], Optional[str]]:
         """Fetch list of open markets from Kalshi. Returns (markets, next_cursor)."""
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             try:
                 params = {"limit": limit, "status": status}
                 if series_ticker:
@@ -112,7 +112,7 @@ class KalshiClient:
 
     async def get_tags_by_categories(self) -> Dict[str, Any]:
         """Fetch all tags grouped by categories from Kalshi."""
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             try:
                 resp = await client.get(
                     f"{self.base_url}/search/tags_by_categories",
@@ -128,7 +128,7 @@ class KalshiClient:
         """Fetch series tickers for a given category."""
         series_tickers = []
         cursor = None
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             try:
                 while True:
                     params = {"category": category, "limit": 100}
@@ -154,7 +154,7 @@ class KalshiClient:
 
     async def fetch_market_by_ticker(self, ticker: str) -> Optional[KalshiMarket]:
         """Fetch a specific Kalshi market by ticker symbol."""
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             try:
                 resp = await client.get(
                     f"{self.base_url}/markets/{ticker}",
@@ -195,7 +195,7 @@ class KalshiClient:
                 return fallback_mkt
 
         # 2. Query markets under base series_ticker
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             try:
                 resp = await client.get(
                     f"{self.base_url}/markets",
@@ -238,7 +238,7 @@ class KalshiClient:
 
     async def fetch_orderbook(self, ticker: str) -> Optional[KalshiOrderbook]:
         """Fetch orderbook depth for a market ticker."""
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             try:
                 resp = await client.get(
                     f"{self.base_url}/markets/{ticker}/orderbook",
@@ -248,13 +248,27 @@ class KalshiClient:
                     data = resp.json()
                     ob_data = data.get("orderbook", data)
                     
+                    def parse_price(raw: Any) -> float:
+                        value = float(raw)
+                        return value / 100.0 if value > 1.0 else value
+
                     yes_bids = [
-                        KalshiBookLevel(price=float(b[0])/100.0 if b[0] > 1 else float(b[0]), size=float(b[1]))
+                        KalshiBookLevel(price=parse_price(b[0]), size=float(b[1]))
                         for b in ob_data.get("yes", []) if len(b) >= 2
                     ]
+                    no_bids = [
+                        KalshiBookLevel(price=parse_price(b[0]), size=float(b[1]))
+                        for b in ob_data.get("no", []) if len(b) >= 2
+                    ]
+                    # Kalshi exposes YES and NO bids. A YES ask is the
+                    # complement of a NO bid, and vice versa.
                     yes_asks = [
-                        KalshiBookLevel(price=float(a[0])/100.0 if a[0] > 1 else float(a[0]), size=float(a[1]))
-                        for a in ob_data.get("no", []) if len(a) >= 2
+                        KalshiBookLevel(price=round(1.0 - level.price, 4), size=level.size)
+                        for level in no_bids
+                    ]
+                    no_asks = [
+                        KalshiBookLevel(price=round(1.0 - level.price, 4), size=level.size)
+                        for level in yes_bids
                     ]
 
                     spread = 0.0
@@ -267,6 +281,8 @@ class KalshiClient:
                         ticker=ticker,
                         yes_bids=yes_bids,
                         yes_asks=yes_asks,
+                        no_bids=no_bids,
+                        no_asks=no_asks,
                         spread=spread,
                         midpoint=midpoint,
                         raw_data=data

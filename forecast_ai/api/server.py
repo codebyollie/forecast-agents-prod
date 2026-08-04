@@ -4,6 +4,7 @@ FastAPI Server for Forecast AI.
 
 import asyncio
 import logging
+import os
 from typing import Optional
 import uvicorn
 from fastapi import FastAPI
@@ -24,10 +25,15 @@ class ApiServer:
         self._init_app()
 
     def _init_app(self):
-        # Enable CORS
+        # The website normally calls this API server-side, but direct clients
+        # still need a controlled CORS policy when the API is exposed publicly.
+        configured_origins = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+        allow_origins = [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
+        if not allow_origins:
+            allow_origins = ["*"]
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
+            allow_origins=allow_origins,
             allow_methods=["*"],
             allow_headers=["*"],
         )

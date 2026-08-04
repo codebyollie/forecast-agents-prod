@@ -3,6 +3,7 @@ API Routes for Forecast AI API Server.
 """
 
 import time
+import secrets
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -31,12 +32,28 @@ def check_ip_rate_limit(request: Request):
         )
     _IP_RATE_LIMITS[ip].append(now)
 
+def require_server_api_key(request: Request):
+    """Protect the private production deployment while keeping OSS self-hosting easy."""
+    expected = ""
+    if _pipeline is not None:
+        expected = getattr(_pipeline.config.server, "api_key", "") or ""
+    if not expected:
+        return
+
+    provided = request.headers.get("x-api-key", "")
+    authorization = request.headers.get("authorization", "")
+    if not provided and authorization.lower().startswith("bearer "):
+        provided = authorization[7:].strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid agents API key.")
+
 class PredictionRequest(BaseModel):
     question: str
     market_id: str = "custom_market"
     model_override: Optional[str] = None
     facts_key: Optional[str] = None
-    venue: Optional[str] = "Kalshi / Robinhood Predict"
+    venue: Optional[str] = None
+    source_venue: Optional[str] = None
 
 class CalibrateRequest(BaseModel):
     agent_name: str
@@ -91,6 +108,7 @@ async def browse_markets_route(
     GET /markets/browse
     Full browse endpoint for markets with pagination, sorting, and unified categories.
     """
+    require_server_api_key(request)
     check_ip_rate_limit(request)
     return await search_service.browse_markets(
         venue=venue.lower(),
@@ -113,6 +131,7 @@ async def search_markets(
     Searches open prediction markets on Kalshi & Polymarket matching the query text.
     IP-based rate limited.
     """
+    require_server_api_key(request)
     check_ip_rate_limit(request)
     return await search_service.search_markets(query=q, limit=limit)
 
@@ -122,45 +141,65 @@ async def predict(
     req: PredictionRequest, 
     pipeline: ForecastPipeline = Depends(get_pipeline)
 ):
+    require_server_api_key(request)
     check_ip_rate_limit(request)
     try:
+        selected_venue = req.source_venue or req.venue
         result = await pipeline.run_forecast(
             question=req.question, 
             market_id=req.market_id,
             is_public_feed=False,
             model_override=req.model_override,
-            facts_key=req.facts_key
+            # FactsAI credentials are deployment secrets, never caller input.
+            facts_key=None,
+            venue=selected_venue,
         )
+        agent_breakdown = [
+            {
+                "id": p.agent_name,
+                "name": p.agent_name,
+                "agent": p.agent_name,
+                "probability": p.probability,
+                "confidence": p.confidence.score,
+                "reasoning": p.reasoning,
+                "warnings": p.confidence.warnings,
+                "citations": p.citations,
+            }
+            for p in result.individual_predictions
+        ]
         return {
             "market_id": result.market_id,
+            "venue": selected_venue,
             "probability": result.probability,
             "confidence": {
                 "score": result.confidence.score,
                 "warnings": result.confidence.warnings
             },
             "reasoning": result.metadata.get("summary_reasoning", ""),
+            "reasoning_trace": {
+                "agent_contributions": result.reasoning_trace.agent_contributions,
+                "aggregation_steps": result.reasoning_trace.aggregation_steps,
+                "conflicts_resolved": result.reasoning_trace.conflicts_resolved,
+            },
+            "market_context": result.metadata.get("market_context", []),
             "timestamp": result.timestamp.isoformat(),
-            "individual_predictions": [
-                {
-                    "agent": p.agent_name,
-                    "probability": p.probability,
-                    "confidence": p.confidence.score,
-                    "reasoning": p.reasoning
-                } for p in result.individual_predictions
-            ]
+            "agent_breakdown": agent_breakdown,
+            "individual_predictions": agent_breakdown,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/forecasts")
-async def get_forecasts(pipeline: ForecastPipeline = Depends(get_pipeline)):
+async def get_forecasts(request: Request, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    require_server_api_key(request)
     try:
         return pipeline.memory_store.list_forecasts()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/stats")
-async def get_stats(pipeline: ForecastPipeline = Depends(get_pipeline)):
+async def get_stats(request: Request, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    require_server_api_key(request)
     try:
         forecasts = pipeline.memory_store.list_forecasts()
         reputations = pipeline.memory_store.get_agent_reputations()
@@ -178,7 +217,8 @@ async def get_stats(pipeline: ForecastPipeline = Depends(get_pipeline)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/reputation/calibrate")
-async def calibrate_reputation(req: CalibrateRequest, pipeline: ForecastPipeline = Depends(get_pipeline)):
+async def calibrate_reputation(request: Request, req: CalibrateRequest, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    require_server_api_key(request)
     try:
         pipeline.memory_store.update_agent_reputation(
             agent_name=req.agent_name,
@@ -190,7 +230,8 @@ async def calibrate_reputation(req: CalibrateRequest, pipeline: ForecastPipeline
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/config")
-async def get_config(pipeline: ForecastPipeline = Depends(get_pipeline)):
+async def get_config(request: Request, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    require_server_api_key(request)
     # Redact sensitive keys
     cfg = pipeline.config
     providers_redacted = {}
@@ -206,8 +247,8 @@ async def get_config(pipeline: ForecastPipeline = Depends(get_pipeline)):
         "polymarket": {
             "gamma_api_url": cfg.polymarket.gamma_api_url,
             "clob_api_url": cfg.polymarket.clob_api_url,
-            "wallet_address": cfg.polymarket.wallet_address,
-            "builder_code": cfg.polymarket.builder_code
+            "wallet_address": getattr(cfg.polymarket, "wallet_address", ""),
+            "builder_code": getattr(cfg.polymarket, "builder_code", "")
         },
         "agents": {
             name: {
