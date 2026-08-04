@@ -33,6 +33,16 @@ class KalshiClient:
         return headers
 
     def _parse_market(self, data: Dict[str, Any]) -> KalshiMarket:
+        # Kalshi has kept the endpoint stable but has progressively moved from
+        # integer-cent fields to *_dollars / *_fp fields.  Accept both shapes
+        # so a schema refresh does not make the market browser silently empty.
+        def first_value(*keys: str, default: Any = None) -> Any:
+            for key in keys:
+                value = data.get(key)
+                if value is not None and value != "":
+                    return value
+            return default
+
         def parse_val(cents_key: str, dollars_key: str, default_val: float = 0.0) -> float:
             if data.get(dollars_key) is not None:
                 try:
@@ -67,10 +77,29 @@ class KalshiClient:
         no_ask = parse_val("no_ask", "no_ask_dollars", 0.0)
         last_price = parse_opt_val("last_price", "last_price_dollars")
 
+        title = first_value(
+            "title", "market_title", "question", "yes_sub_title", "subtitle",
+            default=data.get("ticker", "")
+        )
+        subtitle = first_value("subtitle", "no_sub_title", default="")
+
+        def parse_number(*keys: str) -> float:
+            value = first_value(*keys, default=0)
+            try:
+                return float(value or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        volume = parse_number("volume", "volume_fp", "volume_24h_fp")
+        open_interest = parse_number("open_interest", "open_interest_fp")
+        expiration_time = first_value(
+            "expiration_time", "latest_expiration_time", "close_time", default=""
+        )
+
         return KalshiMarket(
             ticker=data.get("ticker", ""),
-            title=data.get("title", "") or data.get("subtitle", ""),
-            subtitle=data.get("subtitle", ""),
+            title=str(title or data.get("ticker", "")),
+            subtitle=str(subtitle or ""),
             category="", # Deprecated by Kalshi, use series discovery instead
             event_ticker=data.get("event_ticker", ""),
             status=data.get("status", "active"),
@@ -79,9 +108,9 @@ class KalshiClient:
             no_bid=no_bid,
             no_ask=no_ask,
             last_price=last_price,
-            volume=float(data.get("volume", 0) or 0),
-            open_interest=float(data.get("open_interest", 0) or 0),
-            expiration_time=data.get("expiration_time", ""),
+            volume=volume,
+            open_interest=open_interest,
+            expiration_time=str(expiration_time or ""),
             result=data.get("result"),
             raw_data=data
         )
