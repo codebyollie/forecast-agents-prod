@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 import json
 import re
 from typing import List, Dict, Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 from ..models.evidence import Evidence
 from ..models.prediction import Prediction
 from ..models.confidence import ConfidenceScore
@@ -59,6 +60,67 @@ class ForecastAgent(ABC):
         # Clone evidence list so we can append agent-specific evidence safely
         active_evidence = list(evidence or [])
         prediction_citations: List[Dict[str, str]] = []
+        citation_keys = set()
+        research_providers = set()
+
+        def infer_provider(item: Evidence) -> str:
+            metadata_provider = str((item.metadata or {}).get("provider") or "").strip()
+            if metadata_provider:
+                return metadata_provider
+            source_name = item.source_name.lower()
+            if "facts" in source_name:
+                return "FactsAI"
+            if "tavily" in source_name:
+                return "Tavily"
+            if "reddit" in source_name:
+                return "Reddit"
+            if "twitter" in source_name or source_name == "x":
+                return "X"
+            if "polymarket" in source_name:
+                return "Polymarket"
+            if "kalshi" in source_name:
+                return "Kalshi"
+            if "web search" in source_name or "web citation" in source_name:
+                return "OpenAI Web Search"
+            if "news" in source_name or "rss" in source_name:
+                return "News/RSS"
+            if "blockchain" in source_name or "onchain" in source_name:
+                return "On-chain"
+            return item.source_name.strip() or "Source"
+
+        def citation_key(url: str, title: str) -> str:
+            if url:
+                try:
+                    parsed = urlsplit(url.strip())
+                    host = parsed.netloc.lower().removeprefix("www.")
+                    path = parsed.path.rstrip("/") or "/"
+                    return urlunsplit((parsed.scheme.lower() or "https", host, path, "", ""))
+                except Exception:
+                    return url.strip().lower()
+            return re.sub(r"\s+", " ", title.strip().lower())
+
+        def add_citation(
+            title: str,
+            url: str,
+            provider: str,
+            source_type: str = "web",
+        ) -> None:
+            clean_title = (title or "Source").strip()
+            clean_url = (url or "").strip()
+            if not clean_url:
+                return
+            key = citation_key(clean_url, clean_title)
+            if not key or key in citation_keys:
+                return
+            citation_keys.add(key)
+            clean_provider = (provider or "Source").strip()
+            research_providers.add(clean_provider)
+            prediction_citations.append({
+                "title": clean_title,
+                "url": clean_url,
+                "provider": clean_provider,
+                "sourceType": source_type or "web",
+            })
 
         # ── Web Research block ──────────────────────────────────────────────
         # Priority:  1. FactsAI  (Research / Macro / News)
@@ -80,6 +142,16 @@ class ForecastAgent(ABC):
             or os.getenv("FACTSAI_ENABLED", "").lower() in ("true", "1", "yes")
         )
 
+        for item in active_evidence:
+            source_type = str((item.metadata or {}).get("source_type") or "web")
+            if item.url and source_type != "summary":
+                add_citation(
+                    item.title or item.source_name,
+                    item.url,
+                    infer_provider(item),
+                    source_type,
+                )
+
         # ── 1. FactsAI for Research / Macro / News ─────────────────────────
         facts_used = False
         if agent_name in ("research", "macro", "news") and facts_ai_enabled and facts_key:
@@ -90,7 +162,12 @@ class ForecastAgent(ABC):
                     api_url=self.config.facts_ai.api_url,
                     query_max_length=self.config.facts_ai.query_max_length,
                 )
-                res = await facts_source.fetch_deep_research(question)
+                facts_query = {
+                    "news": f"Latest verified reporting and official statements relevant to: {question}",
+                    "research": f"Primary documents, official reports, and expert research relevant to: {question}",
+                    "macro": f"Macroeconomic, regulatory, and systemic drivers relevant to: {question}",
+                }[agent_name]
+                res = await facts_source.fetch_deep_research(facts_query)
                 import logging as _logging
                 _logging.getLogger(__name__).info(
                     f"[{self.name}] FactsAI OK. Answer: {len(res.get('answer',''))} chars, "
@@ -103,20 +180,22 @@ class ForecastAgent(ABC):
                         relevance_score=0.95,
                         title=f"FactsAI Synthesis: {question[:60]}",
                         url="https://factsai.org",
+                        metadata={"provider": "FactsAI", "source_type": "summary"},
                     ))
                 for c in res.get("citations", []):
                     title = c.get("title") or "Cited Source"
                     url   = c.get("url") or ""
                     if url or title:
-                        prediction_citations.append({"title": title, "url": url})
+                        add_citation(title, url, "FactsAI", "research")
                         active_evidence.append(Evidence(
                             source_name="FactsAI Citation",
                             content=f"FactsAI Verified Source: {title}",
                             relevance_score=0.90,
                             title=title,
                             url=url,
+                            metadata={"provider": "FactsAI", "source_type": "research"},
                         ))
-                facts_used = True
+                facts_used = bool(res.get("answer") or res.get("citations"))
             except Exception as e:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
@@ -124,19 +203,55 @@ class ForecastAgent(ABC):
                 )
                 facts_ai_error = f"FactsAI unavailable: {e}"
 
+        # Social and Reddit agents must use platform-native results. Tavily is
+        # preferred because it supports domain filters and returns source URLs.
+        tavily_key = (
+            getattr(self.config.tavily, "api_key", "")
+            or os.getenv("TAVILY_API_KEY", "")
+        )
+        tavily_enabled = (
+            getattr(self.config.tavily, "enabled", False)
+            or os.getenv("TAVILY_ENABLED", "").lower() in ("true", "1", "yes")
+        )
+        specialized_domains = {
+            "social": ["x.com", "twitter.com", "bsky.app", "threads.net"],
+            "reddit": ["reddit.com"],
+        }
+        if agent_name in specialized_domains and tavily_enabled and tavily_key:
+            try:
+                from ..sources.tavily_search import TavilySearchSource
+                tavily_source = TavilySearchSource(api_key=tavily_key, enabled=True)
+                platform_label = "social media" if agent_name == "social" else "Reddit"
+                tavily_evidence = await tavily_source.fetch(
+                    f"Current {platform_label} discussions and sentiment about: {question}",
+                    limit=5,
+                    include_domains=specialized_domains[agent_name],
+                )
+                for item in tavily_evidence:
+                    item.metadata["provider"] = "Tavily"
+                    item.metadata["source_type"] = agent_name
+                    active_evidence.append(item)
+                    if item.url:
+                        add_citation(item.title or platform_label, item.url, "Tavily", agent_name)
+            except Exception as e:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    f"[{self.name}] Tavily platform search failed: {e}"
+                )
+
         # ── 2. OpenAI Web Search ────────────────────────────────────────────
         # Runs as FALLBACK for Research/Macro/News (when FactsAI failed)
         # Runs as PRIMARY for Social (Twitter/X) and Reddit agents
         web_search_query = None
         if agent_name in ("research", "macro", "news") and not facts_used:
             web_search_query = question
-        elif agent_name == "social":
+        elif agent_name == "social" and not any(c.get("sourceType") == "social" for c in prediction_citations):
             web_search_query = (
-                f'Twitter X social media discussion sentiment about: "{question[:300]}"'
+                f'site:x.com OR site:twitter.com OR site:bsky.app social sentiment about: "{question[:300]}"'
             )
-        elif agent_name == "reddit":
+        elif agent_name == "reddit" and not any(c.get("sourceType") == "reddit" for c in prediction_citations):
             web_search_query = (
-                f'Reddit community discussion arguments about: "{question[:300]}"'
+                f'site:reddit.com Reddit community discussion arguments about: "{question[:300]}"'
             )
 
         if web_search_query and openai_key:
@@ -153,25 +268,40 @@ class ForecastAgent(ABC):
                     "Web Search (FactsAI fallback)" if agent_name in ("research", "macro", "news")
                     else f"Web Search ({agent_name.capitalize()})"
                 )
-                if ws_res.get("answer"):
+                allowed_domains = specialized_domains.get(agent_name)
+                accepted_citations = []
+                for c in ws_res.get("citations", []):
+                    url = (c.get("url") or "").strip()
+                    if allowed_domains and url:
+                        host = urlsplit(url).netloc.lower().removeprefix("www.")
+                        if not any(host == domain or host.endswith(f".{domain}") for domain in allowed_domains):
+                            continue
+                    accepted_citations.append(c)
+
+                if ws_res.get("answer") and (accepted_citations or not allowed_domains):
                     active_evidence.append(Evidence(
                         source_name=source_label,
                         content=ws_res["answer"],
                         relevance_score=0.92,
                         title=f"Web Research: {question[:60]}",
                         url="https://openai.com",
+                        metadata={"provider": "OpenAI Web Search", "source_type": "summary"},
                     ))
-                for c in ws_res.get("citations", []):
+                for c in accepted_citations:
                     title = c.get("title") or "Web Source"
                     url   = c.get("url") or ""
                     if url or title:
-                        prediction_citations.append({"title": title, "url": url})
+                        add_citation(title, url, "OpenAI Web Search", agent_name if allowed_domains else "web")
                         active_evidence.append(Evidence(
                             source_name="Web Citation",
                             content=f"Cited: {title}",
                             relevance_score=0.87,
                             title=title,
                             url=url,
+                            metadata={
+                                "provider": "OpenAI Web Search",
+                                "source_type": agent_name if allowed_domains else "web",
+                            },
                         ))
                 # Clear FactsAI error since we recovered via web search
                 facts_ai_error = None
@@ -295,5 +425,6 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             confidence=confidence,
             reasoning=reasoning,
             evidence_used=active_evidence,
-            citations=prediction_citations
+            citations=prediction_citations[:8],
+            research_providers=sorted(research_providers),
         )

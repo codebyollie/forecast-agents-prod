@@ -79,8 +79,8 @@ class ForecastPipeline:
 
         agent_source_map = {
             "news": ["news", "rss", "facts_ai", "tavily"],
-            "social": ["twitter", "social", "reddit", "rss"],
-            "reddit": ["reddit", "social"],
+            "social": ["twitter", "social"],
+            "reddit": ["reddit"],
             "research": ["facts_ai", "arxiv", "research", "tavily"],
             "macro": ["macro", "cme", "fred", "news", "rss", "tavily"],
             "onchain": ["blockchain", "onchain", "polygonscan"],
@@ -90,7 +90,7 @@ class ForecastPipeline:
         async def _query_agent(agent):
             allowed = agent_source_map.get(agent.name.lower(), [agent.name.lower()])
             agent_evidence = [e for e in evidence if any(s in e.source_name.lower() for s in allowed)]
-            if not agent_evidence:
+            if not agent_evidence and agent.name.lower() not in ("social", "reddit"):
                 agent_evidence = evidence
             try:
                 return await agent.forecast(question, agent_evidence, is_public_feed=is_public_feed, model_override=model_override, facts_key=facts_key)

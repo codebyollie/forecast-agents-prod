@@ -15,5 +15,6 @@ class Prediction:
     confidence: ConfidenceScore
     reasoning: str
     evidence_used: List[Evidence] = field(default_factory=list)
-    citations: List[Dict[str, str]] = field(default_factory=list)  # Top citations (title + url)
+    citations: List[Dict[str, str]] = field(default_factory=list)
+    research_providers: List[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.utcnow)

@@ -127,7 +127,8 @@ class FactsAISource(BaseSource):
                     content=res["answer"],
                     relevance_score=0.95,
                     title=f"FactsAI Research: {query[:60]}",
-                    url="https://factsai.org"
+                    url="https://factsai.org",
+                    metadata={"provider": "FactsAI", "source_type": "summary"},
                 ))
 
             # Citations Evidence
@@ -137,7 +138,8 @@ class FactsAISource(BaseSource):
                     content=f"Citation for '{query[:60]}': {c.get('title')}",
                     relevance_score=0.90,
                     title=c.get("title"),
-                    url=c.get("url")
+                    url=c.get("url"),
+                    metadata={"provider": "FactsAI", "source_type": "research"},
                 ))
 
             return evidence_list

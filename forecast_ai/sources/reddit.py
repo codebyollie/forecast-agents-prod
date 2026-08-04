@@ -50,7 +50,12 @@ class RedditSource(BaseSource):
                             timestamp=dt,
                             title=title,
                             url=f"https://reddit.com{post_data.get('permalink', '')}",
-                            relevance_score=0.5
+                            relevance_score=0.5,
+                            metadata={
+                                "provider": "Reddit",
+                                "source_type": "reddit",
+                                "subreddit": subreddit,
+                            },
                         ))
                     return results
             except Exception:

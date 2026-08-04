@@ -43,8 +43,14 @@ class TwitterSource(BaseSource):
                             source_name="twitter",
                             content=t.get("text", ""),
                             timestamp=dt,
+                            title="X post",
+                            url=f"https://x.com/i/web/status/{t.get('id')}" if t.get("id") else None,
                             relevance_score=0.6,
-                            metadata={"author_id": t.get("author_id")}
+                            metadata={
+                                "provider": "X",
+                                "source_type": "social",
+                                "author_id": t.get("author_id"),
+                            }
                         ))
                     return results
             except Exception:
