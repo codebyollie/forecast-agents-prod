@@ -12,4 +12,4 @@ RUN pip install -e .
 
 EXPOSE 30000
 
-CMD ["uvicorn", "forecast_ai.api.server:app", "--host", "0.0.0.0", "--port", "30000"]
+CMD ["sh", "start.sh"]
