@@ -19,7 +19,7 @@ _MARKET_RESOLUTION_CACHE: Dict[str, Tuple[float, KalshiMarket]] = {}
 RESOLUTION_CACHE_TTL_SECONDS = 86400.0  # 24 hours
 
 class KalshiClient:
-    def __init__(self, base_url: str = "https://api.elections.kalshi.com/trade-api/v2", api_key: Optional[str] = None):
+    def __init__(self, base_url: str = "https://external-api.kalshi.com/trade-api/v2", api_key: Optional[str] = None):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
 
@@ -28,8 +28,8 @@ class KalshiClient:
             "Accept": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        # Read-only market and orderbook endpoints are public. Kalshi private
+        # endpoints use signed request headers, not bearer-token authentication.
         return headers
 
     def _parse_market(self, data: Dict[str, Any]) -> KalshiMarket:

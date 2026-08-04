@@ -24,7 +24,7 @@ class PolymarketConfig:
 
 @dataclass
 class KalshiConfig:
-    api_base_url: str = "https://api.elections.kalshi.com/trade-api/v2"
+    api_base_url: str = "https://external-api.kalshi.com/trade-api/v2"
     api_key: str = ""   # Optional, for authenticated endpoints
 
 @dataclass

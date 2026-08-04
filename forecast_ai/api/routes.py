@@ -2,6 +2,7 @@
 API Routes for Forecast AI API Server.
 """
 
+import os
 import time
 import secrets
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
@@ -17,7 +18,7 @@ router = APIRouter()
 _pipeline: Optional[ForecastPipeline] = None
 
 _IP_RATE_LIMITS: Dict[str, List[float]] = {}
-MAX_PER_HOUR = 50
+MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_RATE_LIMIT_PER_HOUR", "50")))
 WINDOW_SECONDS = 3600.0
 
 def check_ip_rate_limit(request: Request):
@@ -32,13 +33,13 @@ def check_ip_rate_limit(request: Request):
         )
     _IP_RATE_LIMITS[ip].append(now)
 
-def require_server_api_key(request: Request):
+def require_server_api_key(request: Request) -> bool:
     """Protect the private production deployment while keeping OSS self-hosting easy."""
     expected = ""
     if _pipeline is not None:
         expected = getattr(_pipeline.config.server, "api_key", "") or ""
     if not expected:
-        return
+        return False
 
     provided = request.headers.get("x-api-key", "")
     authorization = request.headers.get("authorization", "")
@@ -46,6 +47,13 @@ def require_server_api_key(request: Request):
         provided = authorization[7:].strip()
     if not provided or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid agents API key.")
+    return True
+
+def enforce_request_access(request: Request) -> None:
+    """Authenticate production service calls and rate-limit only public OSS traffic."""
+    is_authenticated_service = require_server_api_key(request)
+    if not is_authenticated_service:
+        check_ip_rate_limit(request)
 
 class PredictionRequest(BaseModel):
     question: str
@@ -108,8 +116,7 @@ async def browse_markets_route(
     GET /markets/browse
     Full browse endpoint for markets with pagination, sorting, and unified categories.
     """
-    require_server_api_key(request)
-    check_ip_rate_limit(request)
+    enforce_request_access(request)
     return await search_service.browse_markets(
         venue=venue.lower(),
         category=category,
@@ -131,8 +138,7 @@ async def search_markets(
     Searches open prediction markets on Kalshi & Polymarket matching the query text.
     IP-based rate limited.
     """
-    require_server_api_key(request)
-    check_ip_rate_limit(request)
+    enforce_request_access(request)
     return await search_service.search_markets(query=q, limit=limit)
 
 @router.post("/predict")
@@ -141,8 +147,7 @@ async def predict(
     req: PredictionRequest, 
     pipeline: ForecastPipeline = Depends(get_pipeline)
 ):
-    require_server_api_key(request)
-    check_ip_rate_limit(request)
+    enforce_request_access(request)
     try:
         selected_venue = req.source_venue or req.venue
         result = await pipeline.run_forecast(
@@ -168,9 +173,12 @@ async def predict(
             for p in result.individual_predictions
         ]
         return {
+            "question": req.question,
             "market_id": result.market_id,
             "venue": selected_venue,
+            "source_venue": selected_venue,
             "probability": result.probability,
+            "recommendation": "YES" if result.probability >= 0.5 else "NO",
             "confidence": {
                 "score": result.confidence.score,
                 "warnings": result.confidence.warnings

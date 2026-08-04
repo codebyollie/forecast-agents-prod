@@ -4,6 +4,8 @@ __pycache__/
 !.env.example
 .venv/
 venv/
+.pytest_cache/
+.pytest_tmp/
 dist/
 *.egg-info/
 records/

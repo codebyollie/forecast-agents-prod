@@ -83,7 +83,7 @@ _KALSHI_CURSORS: Dict[str, str] = {}  # session_key -> cursor
 class MarketSearchService:
     def __init__(
         self,
-        kalshi_base_url: str = "https://api.elections.kalshi.com/trade-api/v2",
+        kalshi_base_url: str = "https://external-api.kalshi.com/trade-api/v2",
         gamma_api_url: str = "https://gamma-api.polymarket.com"
     ):
         self.kalshi_client = KalshiClient(base_url=kalshi_base_url)
@@ -521,7 +521,10 @@ class MarketSearchService:
                         "slug": m.event_ticker.lower(),
                         "image": None,
                         "event_id": m.event_ticker,
-                        "outcomes": _poly_outcomes(m),
+                        "outcomes": [
+                            {"label": "Yes", "price": round(price, 4)},
+                            {"label": "No", "price": round(1.0 - price, 4)},
+                        ],
                         "_sort_date": m.raw_data.get("open_time", "")
                     })
             return results, next_cursor
