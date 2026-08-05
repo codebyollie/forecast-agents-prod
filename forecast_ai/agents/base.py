@@ -338,7 +338,12 @@ Please analyze the available evidence relative to the question above.
 You must output a JSON object containing:
 - "probability": A float between 0.0 and 1.0 representing your estimated likelihood of the event resolving to YES.
 - "confidence": A float between 0.0 and 1.0 representing your certainty of this forecast.
-- "reasoning": A detailed explanation of your analysis, highlighting supporting evidence and potential caveats.
+- "summary": One plain-language sentence stating your conclusion and the most important reason.
+- "key_drivers": Up to 3 short evidence-backed factors supporting your forecast.
+- "counter_signals": Up to 2 short factors pointing toward the opposite outcome.
+- "uncertainties": Up to 2 concrete data gaps, conflicts, or resolution risks.
+- "watch_next": Up to 2 specific developments that could materially change the probability.
+- "reasoning": A concise 2-3 sentence technical rationale. Do not repeat the bullet fields verbatim.
 - "warnings": A list of warning messages regarding data sparseness, conflicts, or high volatility.
 
 Return ONLY valid JSON. Do not include markdown wraps or additional conversation.
@@ -370,6 +375,11 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
         probability = 0.5
         confidence_val = 0.5
         reasoning = "Failed to parse agent reasoning."
+        summary = ""
+        key_drivers: List[str] = []
+        counter_signals: List[str] = []
+        uncertainties: List[str] = []
+        watch_next: List[str] = []
         warnings = []
         if facts_ai_error:
             warnings.append(facts_ai_error)
@@ -385,6 +395,18 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             probability = float(data.get("probability", 0.5))
             confidence_val = float(data.get("confidence", 0.5))
             reasoning = str(data.get("reasoning", ""))
+            summary = str(data.get("summary", "")).strip()
+
+            def clean_list(key: str, limit: int) -> List[str]:
+                value = data.get(key, [])
+                if not isinstance(value, list):
+                    return []
+                return [str(item).strip() for item in value if str(item).strip()][:limit]
+
+            key_drivers = clean_list("key_drivers", 3)
+            counter_signals = clean_list("counter_signals", 2)
+            uncertainties = clean_list("uncertainties", 2)
+            watch_next = clean_list("watch_next", 2)
             warnings.extend(list(data.get("warnings", [])))
         except Exception:
             # Fallback regex parsing if JSON fails
@@ -417,6 +439,9 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             else:
                 reasoning = f"Raw output: {raw_response[:500]}..."
 
+        if not summary:
+            summary = re.split(r"(?<=[.!?])\s+", reasoning.strip(), maxsplit=1)[0] if reasoning.strip() else "No concise summary was returned."
+
         confidence = ConfidenceScore(score=confidence_val, warnings=warnings)
         
         return Prediction(
@@ -424,6 +449,11 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             probability=probability,
             confidence=confidence,
             reasoning=reasoning,
+            summary=summary,
+            key_drivers=key_drivers,
+            counter_signals=counter_signals,
+            uncertainties=uncertainties,
+            watch_next=watch_next,
             evidence_used=active_evidence,
             citations=prediction_citations[:8],
             research_providers=sorted(research_providers),

@@ -119,7 +119,14 @@ class KalshiClient:
         """Fetch list of open markets from Kalshi. Returns (markets, next_cursor)."""
         async with httpx.AsyncClient(verify=True) as client:
             try:
-                params = {"limit": limit, "status": status}
+                params = {
+                    "limit": limit,
+                    "status": status,
+                    # Kalshi's newest pages are often dominated by zero-price
+                    # multi-leg contracts. They made the browse endpoint look
+                    # empty after our real-price filter was applied.
+                    "mve_filter": "exclude",
+                }
                 if series_ticker:
                     params["series_ticker"] = series_ticker
                 if cursor:
@@ -141,7 +148,7 @@ class KalshiClient:
                     if not markets_raw and status == "open" and not cursor:
                         fallback = await client.get(
                             f"{self.base_url}/markets",
-                            params={"limit": limit},
+                            params={"limit": limit, "mve_filter": "exclude"},
                             headers=self._headers(),
                         )
                         if fallback.status_code == 200:

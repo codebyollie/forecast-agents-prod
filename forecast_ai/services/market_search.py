@@ -489,7 +489,9 @@ class MarketSearchService:
                 # Let's fetch general open markets and filter locally to ensure we can paginate.
             
             # Fetch general open markets
-            k_limit = page_size if venue == "kalshi" else page_size * 2
+            # Pull enough non-MVE rows to survive zero-price filtering while
+            # still returning a full first page of genuinely quoted markets.
+            k_limit = max(100, page_size * 4)
             mkts, next_cursor = await self.kalshi_client.fetch_markets(limit=k_limit, status="open", cursor=kalshi_cursor)
             
             results = []
