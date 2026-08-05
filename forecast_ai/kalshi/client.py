@@ -133,6 +133,22 @@ class KalshiClient:
                     data = resp.json()
                     markets_raw = data.get("markets", [])
                     next_cursor = data.get("cursor")
+
+                    # Keep the browser useful if Kalshi temporarily returns
+                    # no rows for the status filter during a market rollover.
+                    # The unfiltered public endpoint still contains the live
+                    # contracts and we filter active rows in the service.
+                    if not markets_raw and status == "open" and not cursor:
+                        fallback = await client.get(
+                            f"{self.base_url}/markets",
+                            params={"limit": limit},
+                            headers=self._headers(),
+                        )
+                        if fallback.status_code == 200:
+                            fallback_data = fallback.json()
+                            markets_raw = fallback_data.get("markets", [])
+                            next_cursor = fallback_data.get("cursor")
+
                     return [self._parse_market(m) for m in markets_raw], next_cursor
             except Exception as e:
                 logger.warning(f"[KalshiClient] fetch_markets error: {e}")
