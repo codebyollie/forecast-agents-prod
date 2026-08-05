@@ -22,4 +22,5 @@ class Prediction:
     evidence_used: List[Evidence] = field(default_factory=list)
     citations: List[Dict[str, str]] = field(default_factory=list)
     research_providers: List[str] = field(default_factory=list)
+    provider_insights: Dict[str, str] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.utcnow)

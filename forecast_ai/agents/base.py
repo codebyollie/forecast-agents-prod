@@ -62,6 +62,7 @@ class ForecastAgent(ABC):
         prediction_citations: List[Dict[str, str]] = []
         citation_keys = set()
         research_providers = set()
+        provider_insights: Dict[str, str] = {}
 
         def infer_provider(item: Evidence) -> str:
             metadata_provider = str((item.metadata or {}).get("provider") or "").strip()
@@ -174,6 +175,8 @@ class ForecastAgent(ABC):
                     f"Citations: {len(res.get('citations', []))}"
                 )
                 if res.get("answer"):
+                    facts_answer = str(res["answer"]).strip()
+                    provider_insights["FactsAI"] = facts_answer[:1500]
                     active_evidence.append(Evidence(
                         source_name="FactsAI Deep Research",
                         content=res["answer"],
@@ -196,6 +199,8 @@ class ForecastAgent(ABC):
                             metadata={"provider": "FactsAI", "source_type": "research"},
                         ))
                 facts_used = bool(res.get("answer") or res.get("citations"))
+                if facts_used:
+                    research_providers.add("FactsAI")
             except Exception as e:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
@@ -228,11 +233,16 @@ class ForecastAgent(ABC):
                     include_domains=specialized_domains[agent_name],
                 )
                 for item in tavily_evidence:
+                    tavily_source_type = str(item.metadata.get("source_type") or "web")
                     item.metadata["provider"] = "Tavily"
-                    item.metadata["source_type"] = agent_name
+                    item.metadata["source_type"] = tavily_source_type if tavily_source_type == "summary" else agent_name
                     active_evidence.append(item)
+                    if tavily_source_type == "summary" and item.content:
+                        provider_insights["Tavily"] = str(item.content).strip()[:1200]
                     if item.url:
                         add_citation(item.title or platform_label, item.url, "Tavily", agent_name)
+                if tavily_evidence:
+                    research_providers.add("Tavily")
             except Exception as e:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
@@ -457,4 +467,5 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             evidence_used=active_evidence,
             citations=prediction_citations[:8],
             research_providers=sorted(research_providers),
+            provider_insights=provider_insights,
         )
