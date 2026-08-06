@@ -73,18 +73,102 @@ class ForecastPipeline:
             venue=venue,
         )
 
+        # FactsAI is a paid partner source. Fetch it once per forecast and share
+        # the same verified research with News, Research, and Macro agents.
+        # This replaces the previous three independent calls per Swarm run.
+        facts_enabled = getattr(self.config.facts_ai, "enabled", False)
+        facts_api_key = facts_key or getattr(self.config.facts_ai, "api_key", "")
+        if facts_enabled and facts_api_key:
+            from ..sources.facts_ai import FactsAISource
+
+            facts_cache_key = f"shared:{question.strip()}"
+            cached_facts = self.source_manager.cache.get("facts_ai", facts_cache_key, ttl_seconds=900)
+            if cached_facts is not None:
+                evidence.extend(cached_facts)
+            else:
+                facts_source = FactsAISource(
+                    api_key=facts_api_key,
+                    api_url=self.config.facts_ai.api_url,
+                    query_max_length=self.config.facts_ai.query_max_length,
+                )
+                partner_evidence = []
+                try:
+                    facts_result = await facts_source.fetch_deep_research(
+                        f"Primary sources, verified reporting, and macro context relevant to: {question}"
+                    )
+                    answer = str(facts_result.get("answer") or "").strip()
+                    if answer:
+                        partner_evidence.append(Evidence(
+                            source_name="FactsAI Deep Research",
+                            content=answer,
+                            relevance_score=0.97,
+                            title=f"FactsAI Synthesis: {question[:60]}",
+                            url="https://factsai.org",
+                            metadata={
+                                "provider": "FactsAI",
+                                "source_type": "summary",
+                                "status": "active",
+                                "partner": True,
+                            },
+                        ))
+                    for citation in facts_result.get("citations", []):
+                        title = str(citation.get("title") or "FactsAI source")
+                        url = str(citation.get("url") or "")
+                        partner_evidence.append(Evidence(
+                            source_name="FactsAI Citation",
+                            content=f"FactsAI verified source: {title}",
+                            relevance_score=0.92,
+                            title=title,
+                            url=url,
+                            metadata={
+                                "provider": "FactsAI",
+                                "source_type": "research",
+                                "status": "active",
+                                "partner": True,
+                            },
+                        ))
+                    if not answer and not facts_result.get("citations"):
+                        partner_evidence.append(Evidence(
+                            source_name="FactsAI Status",
+                            content="FactsAI completed the request but returned no research.",
+                            relevance_score=0.0,
+                            metadata={
+                                "provider": "FactsAI",
+                                "source_type": "status",
+                                "status": "empty",
+                                "partner": True,
+                            },
+                        ))
+                    evidence.extend(partner_evidence)
+                    if partner_evidence:
+                        self.source_manager.cache.set("facts_ai", facts_cache_key, partner_evidence)
+                except Exception as exc:
+                    logger.warning("[ForecastPipeline] FactsAI unavailable: %s", exc)
+                    evidence.append(Evidence(
+                        source_name="FactsAI Status",
+                        content="FactsAI was unavailable; standard web research fallback was used.",
+                        relevance_score=0.0,
+                        metadata={
+                            "provider": "FactsAI",
+                            "source_type": "status",
+                            "status": "unavailable",
+                            "partner": True,
+                            "error": str(exc)[:240],
+                        },
+                    ))
+
         # 2. Query active agents in parallel
         active_agents = list(self.agents.values())
         predictions = []
 
         agent_source_map = {
-            "news": ["news", "rss", "facts_ai", "tavily"],
+            "news": ["news", "rss", "facts_ai", "factsai", "tavily"],
             "social": ["twitter", "social"],
             "reddit": ["reddit"],
-            "research": ["facts_ai", "arxiv", "research", "tavily"],
-            "macro": ["macro", "cme", "fred", "news", "rss", "tavily"],
+            "research": ["facts_ai", "factsai", "arxiv", "research", "tavily"],
+            "macro": ["macro", "cme", "fred", "news", "rss", "facts_ai", "factsai", "tavily"],
             "onchain": ["blockchain", "onchain", "polygonscan"],
-            "market": ["kalshi", "polymarket", "market", "robinhood"]
+            "market": ["kalshi", "polymarket", "market", "robinhood", "falcon"]
         }
 
         async def _query_agent(agent):

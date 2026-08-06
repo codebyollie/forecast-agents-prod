@@ -8,12 +8,32 @@ and cited sources. Handles HTTP error codes explicitly (401, 402, 429, 500).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import httpx
 from .base import BaseSource
 from ..models.evidence import Evidence
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_STATUS: Dict[str, Any] = {
+    "status": "not_checked",
+    "last_checked_at": None,
+    "message": None,
+}
+
+
+def get_facts_ai_runtime_status() -> Dict[str, Any]:
+    """Return non-secret runtime health for the integration status UI."""
+    return dict(_RUNTIME_STATUS)
+
+
+def _record_status(status: str, message: Optional[str] = None) -> None:
+    _RUNTIME_STATUS.update({
+        "status": status,
+        "last_checked_at": datetime.now(timezone.utc).isoformat(),
+        "message": message,
+    })
 
 class FactsAIError(Exception):
     """Exception raised when FactsAI API returns an error."""
@@ -53,6 +73,8 @@ class FactsAISource(BaseSource):
         # The endpoint currently documents a single required `query` field.
         payload = {"query": clean_query}
 
+        _record_status("requested")
+
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.post(self.api_url, headers=headers, json=payload, timeout=90.0)
@@ -60,9 +82,12 @@ class FactsAISource(BaseSource):
                 if resp.status_code == 200:
                     res_data = resp.json()
                     if not isinstance(res_data, dict):
+                        _record_status("unavailable", "FactsAI returned a non-object JSON response.")
                         raise FactsAIError(500, "FactsAI returned a non-object JSON response.")
                     if res_data.get("success") is False:
-                        raise FactsAIError(500, str(res_data.get("error") or "FactsAI request failed."))
+                        detail = str(res_data.get("error") or "FactsAI request failed.")
+                        _record_status("unavailable", detail[:240])
+                        raise FactsAIError(500, detail)
                     # Support both data.answer / data.citations and top-level response format
                     data_obj = res_data.get("data") if isinstance(res_data.get("data"), dict) else res_data
                     
@@ -81,6 +106,7 @@ class FactsAISource(BaseSource):
                         elif isinstance(c, str):
                             clean_citations.append({"url": c, "title": "Source", "author": "", "publishedDate": ""})
 
+                    _record_status("active")
                     return {
                         "answer": answer,
                         "citations": clean_citations
@@ -98,19 +124,26 @@ class FactsAISource(BaseSource):
                         err_detail = resp.text[:200]
 
                     if resp.status_code == 401:
+                        _record_status("unauthorized", err_detail[:240])
                         raise FactsAIError(401, f"Unauthorized: {err_detail}")
                     elif resp.status_code == 402:
+                        _record_status("insufficient_credits", err_detail[:240])
                         raise FactsAIError(402, f"Payment Required: {err_detail}")
                     elif resp.status_code == 429:
+                        _record_status("rate_limited", err_detail[:240])
                         raise FactsAIError(429, f"Too Many Requests: {err_detail}")
                     elif resp.status_code >= 500:
+                        _record_status("unavailable", err_detail[:240])
                         raise FactsAIError(resp.status_code, f"Server Error: {err_detail}")
                     else:
+                        _record_status("unavailable", err_detail[:240])
                         raise FactsAIError(resp.status_code, f"Request Failed: {err_detail}")
 
             except FactsAIError:
+                # The specific status is recorded before the exception below.
                 raise
             except Exception as e:
+                _record_status("unavailable", str(e)[:240])
                 raise FactsAIError(500, f"Network or execution error calling FactsAI: {e}")
 
     async def fetch(self, query: str, limit: int = 5) -> List[Evidence]:

@@ -7,6 +7,7 @@ from .reddit import RedditSource
 from .blockchain import BlockchainSource
 from .kalshi import KalshiSource
 from .tavily_search import TavilySearchSource
+from .falcon import FalconSource
 from ..models.evidence import Evidence
 from ..config import ForecastConfig
 from .cache import SourceCache
@@ -32,6 +33,17 @@ class SourceManager:
         )
         self.gamma_client = GammaClient(base_url=config.polymarket.gamma_api_url)
         self.clob_client = ClobClient(base_url=config.polymarket.clob_api_url)
+        self.falcon_source = None
+        if getattr(config.falcon, "enabled", False) and getattr(config.falcon, "api_token", ""):
+            self.falcon_source = FalconSource(
+                api_token=config.falcon.api_token,
+                api_url=config.falcon.api_url,
+                timeout_seconds=config.falcon.timeout_seconds,
+                market_insights_agent_id=config.falcon.market_insights_agent_id,
+                kalshi_markets_agent_id=config.falcon.kalshi_markets_agent_id,
+                social_pulse_agent_id=config.falcon.social_pulse_agent_id,
+                social_enabled=config.falcon.social_enabled,
+            )
         
         news_key = getattr(config.sources, "news_api_key", "") or os.getenv("NEWS_API_KEY", "")
         twitter_token = getattr(config.sources, "twitter_bearer_token", "") or os.getenv("TWITTER_BEARER_TOKEN", "")
@@ -223,15 +235,47 @@ class SourceManager:
                 },
             )]
 
+        async def with_falcon(base_evidence: List[Evidence]) -> List[Evidence]:
+            if not base_evidence or self.falcon_source is None:
+                return base_evidence
+            cache_key = f"{venue_name or 'auto'}:{market_id}:social={self.falcon_source.social_enabled}"
+            cached = self.cache.get("falcon", cache_key, ttl_seconds=300)
+            if cached is not None:
+                return base_evidence + cached
+            try:
+                partner_evidence = await self.falcon_source.fetch_market_intelligence(
+                    market_id=market_id,
+                    venue=venue,
+                    limit=25,
+                )
+                if partner_evidence:
+                    self.cache.set("falcon", cache_key, partner_evidence)
+                return base_evidence + partner_evidence
+            except Exception as exc:
+                logger.warning("[SourceManager] Falcon partner intelligence unavailable: %s", exc)
+                return base_evidence + [Evidence(
+                    source_name="falcon_status",
+                    content="Falcon partner intelligence was unavailable for this analysis.",
+                    relevance_score=0.0,
+                    metadata={
+                        "provider": "Falcon",
+                        "source_type": "status",
+                        "status": "unavailable",
+                        "partner": True,
+                    },
+                )]
+
         if "polymarket" in venue_name:
-            return await fetch_polymarket()
+            return await with_falcon(await fetch_polymarket())
         if "kalshi" in venue_name or "robinhood" in venue_name:
-            return await fetch_kalshi()
+            return await with_falcon(await fetch_kalshi())
 
         # Custom/legacy callers may omit the venue. Resolve deterministically by
         # trying Polymarket slug resolution first, then Kalshi ticker resolution.
         evidence = await fetch_polymarket()
-        return evidence or await fetch_kalshi()
+        if evidence:
+            return await with_falcon(evidence)
+        return await with_falcon(await fetch_kalshi())
 
     async def synthesize_evidence(self, query: str, evidence: List[Evidence]) -> List[Evidence]:
         """
@@ -277,5 +321,6 @@ __all__ = [
     "BlockchainSource",
     "KalshiSource",
     "TavilySearchSource",
+    "FalconSource",
     "SourceManager",
 ]

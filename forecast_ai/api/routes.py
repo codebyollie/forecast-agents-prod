@@ -93,6 +93,45 @@ AGENT_METADATA = [
 async def healthz():
     return {"status": "ok", "message": "Forecast AI API Server active."}
 
+@router.get("/integrations/status")
+async def integrations_status(
+    request: Request,
+    pipeline: ForecastPipeline = Depends(get_pipeline),
+):
+    """Return safe configuration and runtime health without exposing secrets."""
+    enforce_request_access(request)
+    from ..sources.facts_ai import get_facts_ai_runtime_status
+    from ..sources.falcon import get_falcon_runtime_status
+
+    facts_runtime = get_facts_ai_runtime_status()
+    falcon_runtime = get_falcon_runtime_status()
+    facts_configured = bool(getattr(pipeline.config.facts_ai, "api_key", ""))
+    falcon_configured = bool(getattr(pipeline.config.falcon, "api_token", ""))
+
+    return {
+        "facts_ai": {
+            "enabled": bool(getattr(pipeline.config.facts_ai, "enabled", False)),
+            "configured": facts_configured,
+            **facts_runtime,
+        },
+        "falcon": {
+            "enabled": bool(getattr(pipeline.config.falcon, "enabled", False)),
+            "configured": falcon_configured,
+            "social_enabled": bool(getattr(pipeline.config.falcon, "social_enabled", False)),
+            **falcon_runtime,
+        },
+        "tavily": {
+            "enabled": bool(getattr(pipeline.config.tavily, "enabled", False)),
+            "configured": bool(getattr(pipeline.config.tavily, "api_key", "")),
+            "status": "configured" if (
+                getattr(pipeline.config.tavily, "enabled", False)
+                and getattr(pipeline.config.tavily, "api_key", "")
+            ) else "disabled",
+            "last_checked_at": None,
+            "message": None,
+        },
+    }
+
 @router.get("/agents/meta")
 async def get_agents_metadata():
     """

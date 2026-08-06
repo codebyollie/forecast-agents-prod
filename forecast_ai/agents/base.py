@@ -143,20 +143,39 @@ class ForecastAgent(ABC):
             getattr(self.config.facts_ai, "enabled", False)
             or os.getenv("FACTSAI_ENABLED", "").lower() in ("true", "1", "yes")
         )
+        facts_used = False
+        facts_ai_attempted = False
 
         for item in active_evidence:
             source_type = str((item.metadata or {}).get("source_type") or "web")
+            inferred_provider = infer_provider(item)
+            provider_status = str((item.metadata or {}).get("status") or "").strip()
+            if inferred_provider == "FactsAI":
+                facts_ai_attempted = True
+                provider_statuses["FactsAI"] = provider_status or "active"
+                if provider_status in ("", "active") and source_type != "status":
+                    facts_used = True
+                    research_providers.add("FactsAI")
+                    if source_type == "summary" and item.content:
+                        provider_insights["FactsAI"] = str(item.content).strip()[:1500]
+                elif provider_status == "unavailable":
+                    facts_ai_error = "FactsAI unavailable; standard research fallback was used."
+            if inferred_provider == "Falcon":
+                provider_statuses["Falcon"] = provider_status or "active"
+                if provider_status in ("", "active") and source_type != "status":
+                    research_providers.add("Falcon")
+                    if item.content:
+                        provider_insights["Falcon"] = str(item.content).strip()[:1500]
             if item.url and source_type != "summary":
                 add_citation(
                     item.title or item.source_name,
                     item.url,
-                    infer_provider(item),
+                    inferred_provider,
                     source_type,
                 )
 
         # ── 1. FactsAI for Research / Macro / News ─────────────────────────
-        facts_used = False
-        if agent_name in ("research", "macro", "news") and facts_ai_enabled and facts_key:
+        if agent_name in ("research", "macro", "news") and facts_ai_enabled and facts_key and not facts_ai_attempted:
             provider_statuses["FactsAI"] = "requested"
             try:
                 from ..sources.facts_ai import FactsAISource

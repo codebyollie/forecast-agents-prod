@@ -68,6 +68,19 @@ class FactsAIConfig:
     query_max_length: int = 1000
     rate_limit_per_min: int = 100
     coarse_refresh_interval_cycles: int = 2
+
+@dataclass
+class FalconConfig:
+    """Falcon / Polymarket Analytics partner intelligence."""
+    enabled: bool = False
+    api_token: str = ""
+    api_url: str = "https://retriever.falconapi.net/api/v2/semantic/retrieve/parameterized"
+    timeout_seconds: float = 30.0
+    market_insights_agent_id: int = 575
+    kalshi_markets_agent_id: int = 565
+    social_pulse_agent_id: int = 585
+    social_enabled: bool = False
+
 @dataclass
 class TavilyConfig:
     enabled: bool = False
@@ -92,6 +105,7 @@ class ForecastConfig:
     kalshi: KalshiConfig = field(default_factory=KalshiConfig)
     robinhood_agentic: RobinhoodAgenticConfig = field(default_factory=RobinhoodAgenticConfig)
     facts_ai: FactsAIConfig = field(default_factory=FactsAIConfig)
+    falcon: FalconConfig = field(default_factory=FalconConfig)
     tavily: TavilyConfig = field(default_factory=TavilyConfig)
     sources: SourcesConfig = field(default_factory=SourcesConfig)
     agents: Dict[str, AgentSettings] = field(default_factory=lambda: {

@@ -64,6 +64,7 @@ class SourceCache:
                         relevance_score=item.get("relevance_score", 1.0),
                         title=item.get("title", ""),
                         url=item.get("url", ""),
+                        metadata=item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
                         timestamp=self._parse_timestamp(item.get("timestamp"))
                     )
                 )
@@ -100,6 +101,7 @@ class SourceCache:
                     "relevance_score": e.relevance_score,
                     "title": e.title,
                     "url": e.url,
+                    "metadata": e.metadata,
                     "timestamp": e.timestamp.isoformat()
                 }
                 for e in evidence

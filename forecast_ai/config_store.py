@@ -135,6 +135,16 @@ class ConfigStore:
         if os.environ.get("FACTSAI_API_URL"):
             config.facts_ai.api_url = os.environ["FACTSAI_API_URL"]
 
+        # Falcon partner intelligence overrides
+        if os.environ.get("FALCON_API_TOKEN"):
+            config.falcon.api_token = os.environ["FALCON_API_TOKEN"]
+        if os.environ.get("FALCON_ENABLED"):
+            config.falcon.enabled = os.environ["FALCON_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("FALCON_API_URL"):
+            config.falcon.api_url = os.environ["FALCON_API_URL"]
+        if os.environ.get("FALCON_SOCIAL_ENABLED"):
+            config.falcon.social_enabled = os.environ["FALCON_SOCIAL_ENABLED"].lower() in ("true", "1", "yes")
+
         # Tavily overrides
         if os.environ.get("TAVILY_API_KEY"):
             config.tavily.api_key = os.environ["TAVILY_API_KEY"]

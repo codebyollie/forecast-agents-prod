@@ -99,6 +99,28 @@ async def test_facts_ai_agent_graceful_fallback():
         assert pred.provider_statuses["FactsAI"] == "unavailable"
         assert any("FactsAI unavailable" in warning for warning in pred.confidence.warnings)
 
+
+@pytest.mark.asyncio
+async def test_preloaded_facts_ai_research_prevents_duplicate_paid_call():
+    cfg = ForecastConfig()
+    cfg.facts_ai.enabled = True
+    cfg.facts_ai.api_key = "configured-key"
+    agent = ResearchAgent(name="research", provider=DummyProvider(), config=cfg)
+    preloaded = [Evidence(
+        source_name="FactsAI Deep Research",
+        content="Shared verified research.",
+        title="FactsAI synthesis",
+        url="https://factsai.org",
+        metadata={"provider": "FactsAI", "source_type": "summary", "status": "active"},
+    )]
+
+    with patch("forecast_ai.sources.facts_ai.FactsAISource.fetch_deep_research") as fetch:
+        prediction = await agent.forecast("Will CPI fall?", evidence=preloaded)
+
+    fetch.assert_not_called()
+    assert prediction.provider_statuses["FactsAI"] == "active"
+    assert prediction.provider_insights["FactsAI"] == "Shared verified research."
+
 def test_facts_ai_config_env_overrides():
     os.environ["FACTSAI_API_KEY"] = "forecast_test_key_123"
     os.environ["FACTSAI_ENABLED"] = "true"
