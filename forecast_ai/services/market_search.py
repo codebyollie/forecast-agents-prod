@@ -106,6 +106,18 @@ CATEGORY_MAP = {
     "news": "World"
 }
 
+POLYMARKET_CATEGORY_TAGS = {
+    "Politics": ["politics"],
+    "Crypto": ["crypto"],
+    "Economy": ["business", "economy", "finance"],
+    "Climate": ["climate", "weather"],
+    "Commodities": ["commodities"],
+    "Sports": ["sports"],
+    "Entertainment": ["pop-culture", "entertainment"],
+    "Tech": ["technology", "science", "ai"],
+    "World": ["world", "geopolitics"],
+}
+
 def normalize_category(raw_cat: str) -> str:
     if not raw_cat:
         return "Other"
@@ -637,23 +649,49 @@ class MarketSearchService:
         async def _get_poly():
             if not fetch_poly:
                 return [], False
-            
-            p_limit = max(100, min(500, page_size * 10)) if category else (page_size if venue == "polymarket" else page_size * 2)
-            p_offset = 0 if category else (page - 1) * page_size
-            
-            # We fetch events to group by eventId natively
-            events = await self.gamma_client.list_events(
-                active=True,
-                limit=p_limit,
-                offset=p_offset,
-                order="volume_24hr",
-                ascending=False,
-            )
+
+            target_category = normalize_category(category or "") if category else None
+            tag_slugs = POLYMARKET_CATEGORY_TAGS.get(target_category or "", [])
+            used_tag_filter = False
+            if tag_slugs:
+                tag_batches = await asyncio.gather(*[
+                    self.gamma_client.list_events(
+                        active=True,
+                        limit=max(page_size * 4, 50),
+                        offset=0,
+                        tag_slug=tag_slug,
+                        related_tags=True,
+                    )
+                    for tag_slug in tag_slugs
+                ])
+                event_by_id = {
+                    event.id: event
+                    for batch in tag_batches
+                    for event in batch
+                }
+                events = list(event_by_id.values())
+                used_tag_filter = bool(events)
+            else:
+                events = []
+
+            # Fall back to broad discovery when Polymarket has no canonical
+            # tag for the requested category or a tag temporarily returns no
+            # events. This also powers the unfiltered directory.
+            if not events:
+                p_limit = max(100, min(500, page_size * 10)) if category else (page_size if venue == "polymarket" else page_size * 2)
+                p_offset = 0 if category else (page - 1) * page_size
+                events = await self.gamma_client.list_events(
+                    active=True,
+                    limit=p_limit,
+                    offset=p_offset,
+                )
+            else:
+                p_limit = max(page_size * 4, 50)
             
             results = []
             for ev in events:
-                cat = _polymarket_category(ev)
-                if category and normalize_category(category) != cat:
+                cat = target_category if used_tag_filter and target_category else _polymarket_category(ev)
+                if target_category and target_category != cat:
                     continue
                 
                 valid_markets = [m for m in ev.markets if m.active and not m.closed and m.outcome_prices]

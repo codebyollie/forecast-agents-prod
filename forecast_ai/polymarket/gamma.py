@@ -167,6 +167,8 @@ class GammaClient:
         offset: int = 0,
         order: Optional[str] = None,
         ascending: Optional[bool] = None,
+        tag_slug: Optional[str] = None,
+        related_tags: Optional[bool] = None,
     ) -> List[PolymarketEvent]:
         params = {
             "active": "true" if active else "false",
@@ -178,6 +180,10 @@ class GammaClient:
             params["order"] = order
         if ascending is not None:
             params["ascending"] = "true" if ascending else "false"
+        if tag_slug:
+            params["tag_slug"] = tag_slug
+        if related_tags is not None:
+            params["related_tags"] = "true" if related_tags else "false"
         data = await self._get_json("/events", params)
         if isinstance(data, list):
             return [self._parse_event(e) for e in data]

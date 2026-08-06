@@ -173,6 +173,13 @@ async def test_polymarket_category_uses_event_tags(search_service):
         category="Politics",
     )
 
+    search_service.gamma_client.list_events.assert_awaited_once_with(
+        active=True,
+        limit=96,
+        offset=0,
+        tag_slug="politics",
+        related_tags=True,
+    )
     assert len(res["results"]) == 1
     assert res["results"][0]["category"] == "Politics"
 
