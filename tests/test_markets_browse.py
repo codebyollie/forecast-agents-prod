@@ -102,6 +102,7 @@ async def test_browse_markets_normalized_shape(search_service):
 @pytest.mark.asyncio
 async def test_category_filter(search_service):
     # Mock Kalshi to return two markets with different inferred categories
+    search_service.kalshi_client.get_tags_by_categories.return_value = {}
     m1 = KalshiMarket(ticker="KXP", title="Politics market", status="open", last_price=0.5, volume=100)
     m2 = KalshiMarket(ticker="KXS", title="Sports market", status="open", last_price=0.5, volume=200)
     search_service.kalshi_client.fetch_markets.return_value = ([m1, m2], None)
@@ -113,6 +114,85 @@ async def test_category_filter(search_service):
     
     assert len(results) == 1
     assert results[0]["market_id"] == "KXP"
+
+
+@pytest.mark.asyncio
+async def test_kalshi_category_uses_series_discovery(search_service):
+    market = KalshiMarket(
+        ticker="KXPOL-1",
+        title="Candidate margin",
+        status="open",
+        last_price=0.55,
+        volume=500,
+    )
+    search_service.kalshi_client.get_tags_by_categories.return_value = {
+        "Politics": ["Elections"]
+    }
+    search_service.kalshi_client.get_series.return_value = ["KXPOL"]
+    search_service.kalshi_client.fetch_markets.return_value = ([market], None)
+
+    res = await search_service.browse_markets(
+        venue="kalshi",
+        category="Politics",
+    )
+
+    search_service.kalshi_client.fetch_markets.assert_awaited_once_with(
+        limit=250,
+        status="open",
+        series_ticker="KXPOL",
+    )
+    assert res["results"][0]["category"] == "Politics"
+
+
+@pytest.mark.asyncio
+async def test_polymarket_category_uses_event_tags(search_service):
+    market = PolymarketMarket(
+        id="poly-politics",
+        question="Who will win?",
+        condition_id="cond-politics",
+        slug="poly-politics",
+        resolution_source="Source",
+        end_date_iso="2026-12-31T00:00:00Z",
+        active=True,
+        closed=False,
+        volume=1000,
+        raw_data={"outcomePrices": ["0.6"]},
+    )
+    event = PolymarketEvent(
+        id="event-politics",
+        title="Candidate margin",
+        slug="event-politics",
+        description="",
+        markets=[market],
+        raw_data={"tags": [{"label": "Politics", "slug": "politics"}]},
+    )
+    search_service.gamma_client.list_events.return_value = [event]
+
+    res = await search_service.browse_markets(
+        venue="polymarket",
+        category="Politics",
+    )
+
+    assert len(res["results"]) == 1
+    assert res["results"][0]["category"] == "Politics"
+
+
+@pytest.mark.asyncio
+async def test_search_respects_venue_and_category_filters(search_service):
+    search_service.search_markets = AsyncMock(return_value=[
+        {"market_id": "k1", "venue": "Kalshi", "category": "Politics"},
+        {"market_id": "k2", "venue": "Kalshi", "category": "Sports"},
+        {"market_id": "p1", "venue": "Polymarket", "category": "Politics"},
+    ])
+
+    res = await search_service.browse_markets(
+        venue="kalshi",
+        category="Politics",
+        q="candidate",
+        page_size=24,
+    )
+
+    assert [item["market_id"] for item in res["results"]] == ["k1"]
 
 @pytest.mark.asyncio
 async def test_pagination_has_more(search_service):

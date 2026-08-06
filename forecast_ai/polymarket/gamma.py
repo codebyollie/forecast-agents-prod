@@ -160,13 +160,24 @@ class GammaClient:
             return self._parse_event(data[0])
         return None
 
-    async def list_events(self, active: bool = True, limit: int = 20, offset: int = 0) -> List[PolymarketEvent]:
+    async def list_events(
+        self,
+        active: bool = True,
+        limit: int = 20,
+        offset: int = 0,
+        order: Optional[str] = None,
+        ascending: Optional[bool] = None,
+    ) -> List[PolymarketEvent]:
         params = {
             "active": "true" if active else "false",
             "closed": "false" if active else "true",
             "limit": limit,
             "offset": offset
         }
+        if order:
+            params["order"] = order
+        if ascending is not None:
+            params["ascending"] = "true" if ascending else "false"
         data = await self._get_json("/events", params)
         if isinstance(data, list):
             return [self._parse_event(e) for e in data]

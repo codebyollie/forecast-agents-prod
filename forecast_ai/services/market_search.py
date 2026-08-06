@@ -41,17 +41,40 @@ KNOWN_SERIES_MAP = {
 
 CATEGORY_MAP = {
     "politics": "Politics",
+    "political": "Politics",
     "elections": "Politics",
+    "election": "Politics",
+    "president": "Politics",
+    "congress": "Politics",
+    "senate": "Politics",
+    "governor": "Politics",
+    "white house": "Politics",
+    "trump": "Politics",
+    "biden": "Politics",
     "crypto": "Crypto",
     "bitcoin": "Crypto",
     "ethereum": "Crypto",
+    "solana": "Crypto",
+    "blockchain": "Crypto",
     "economics": "Economy",
+    "economic": "Economy",
+    "economy": "Economy",
     "financials": "Economy",
+    "finance": "Economy",
     "business": "Economy",
+    "federal reserve": "Economy",
+    "interest rate": "Economy",
+    "inflation": "Economy",
+    "recession": "Economy",
+    "unemployment": "Economy",
+    "gdp": "Economy",
     "climate": "Climate",
     "weather": "Climate",
     "temperature": "Climate",
     "temp ": "Climate",
+    "hurricane": "Climate",
+    "rainfall": "Climate",
+    "snowfall": "Climate",
     "commodities": "Commodities",
     "commodity": "Commodities",
     "oil": "Commodities",
@@ -65,10 +88,21 @@ CATEGORY_MAP = {
     "tennis": "Sports",
     "entertainment": "Entertainment",
     "pop culture": "Entertainment",
+    "movies": "Entertainment",
+    "music": "Entertainment",
+    "awards": "Entertainment",
     "science & technology": "Tech",
+    "technology": "Tech",
+    "artificial intelligence": "Tech",
     "science": "Tech",
     "tech": "Tech",
     "world": "World",
+    "geopolitics": "World",
+    "ukraine": "World",
+    "russia": "World",
+    "israel": "World",
+    "iran": "World",
+    "ceasefire": "World",
     "news": "World"
 }
 
@@ -91,6 +125,32 @@ def _poly_outcomes(market: Any) -> List[Dict[str, Any]]:
 
 def _kalshi_category(market: Any) -> str:
     return normalize_category(f"{market.category} {market.title} {market.subtitle}")
+
+def _polymarket_category(event: Any, market: Any = None) -> str:
+    raw = event.raw_data or {}
+    tag_parts = []
+    for tag in raw.get("tags", []) or []:
+        if isinstance(tag, dict):
+            tag_parts.extend([str(tag.get("label") or ""), str(tag.get("slug") or "")])
+        elif tag:
+            tag_parts.append(str(tag))
+    market_parts = ""
+    if market is not None:
+        market_parts = f"{getattr(market, 'category', '')} {getattr(market, 'question', '')}"
+    else:
+        market_parts = " ".join(
+            f"{getattr(item, 'category', '')} {getattr(item, 'question', '')}"
+            for item in (getattr(event, "markets", []) or [])
+        )
+    return normalize_category(
+        " ".join([
+            str(raw.get("category") or ""),
+            str(raw.get("subcategory") or ""),
+            *tag_parts,
+            str(event.title or ""),
+            market_parts,
+        ])
+    )
 
 _KALSHI_CURSORS: Dict[str, str] = {}  # session_key -> cursor
 
@@ -448,15 +508,28 @@ class MarketSearchService:
         """
         Browse and list markets with pagination, sorting, and category filtering.
         """
+        category = category if category and category.lower() != "all" else None
+
         if q:
             # Delegate to existing keyword search (which does not paginate currently, so we return it as page 1)
-            search_results = await self.search_markets(q, limit=page_size)
+            search_results = await self.search_markets(q, limit=max(50, page_size * 3))
             # Normalize categories in search results
             for r in search_results:
                 r["category"] = normalize_category(r.get("category", ""))
                 r["image"] = r.get("image")
+            if venue != "all":
+                search_results = [
+                    r for r in search_results
+                    if str(r.get("venue") or "").lower() == venue
+                ]
+            if category:
+                target_category = normalize_category(category)
+                search_results = [
+                    r for r in search_results
+                    if normalize_category(r.get("category", "")) == target_category
+                ]
             return {
-                "results": search_results,
+                "results": search_results[:page_size],
                 "page": page,
                 "page_size": page_size,
                 "has_more": False
@@ -482,32 +555,47 @@ class MarketSearchService:
             
             # If category is provided, we must first discover series for that category
             series_tickers = []
+            target_category = normalize_category(category or "") if category else None
             if category:
-                # We do a rough reverse-map: find all Kalshi tags that match the normalized category
-                # For simplicity, if a category is provided, we fetch a large batch of markets and filter locally,
-                # because Kalshi's /series API requires their exact category string, and we normalized it.
-                # Actually, the prompt says "GET /search/tags_by_categories -> GET /series?category=X".
+                # Resolve our normalized UI category to Kalshi's canonical
+                # category, then discover the most active series in it.
                 tags_data = await self.kalshi_client.get_tags_by_categories()
                 target_k_categories = []
-                norm_cat = normalize_category(category)
                 for k_cat in tags_data.keys():
-                    if normalize_category(k_cat) == norm_cat:
+                    if normalize_category(k_cat) == target_category:
                         target_k_categories.append(k_cat)
                 
                 for k_cat in target_k_categories:
-                    s_tickers = await self.kalshi_client.get_series(k_cat, limit=50)
+                    s_tickers = await self.kalshi_client.get_series(k_cat, limit=12)
                     series_tickers.extend(s_tickers)
-                
-                # If we found series, we should query them. But fetch_markets only takes one series_ticker.
-                # To support proper pagination, if category is selected, we might have to fetch general open and filter.
-                # Let's fetch general open markets and filter locally to ensure we can paginate.
             
             # Kalshi returns markets in API order rather than by liquidity.
             # The first ~100 rows are frequently newly-created, zero-volume
             # hourly contracts, which made the UI look as if Kalshi had no
             # useful markets. Pull the full supported page and sort locally.
             k_limit = 1000
-            mkts, next_cursor = await self.kalshi_client.fetch_markets(limit=k_limit, status="open", cursor=kalshi_cursor)
+            if series_tickers:
+                batches = await asyncio.gather(*[
+                    self.kalshi_client.fetch_markets(
+                        limit=250,
+                        status="open",
+                        series_ticker=series_ticker,
+                    )
+                    for series_ticker in dict.fromkeys(series_tickers)
+                ])
+                market_by_ticker = {
+                    market.ticker: market
+                    for markets, _ in batches
+                    for market in markets
+                }
+                mkts = list(market_by_ticker.values())
+                next_cursor = None
+            else:
+                mkts, next_cursor = await self.kalshi_client.fetch_markets(
+                    limit=k_limit,
+                    status="open",
+                    cursor=kalshi_cursor,
+                )
             
             results = []
             for m in mkts:
@@ -515,8 +603,8 @@ class MarketSearchService:
                     continue
                 # We don't have category directly on m. We can infer from series if we had a map, 
                 # but Kalshi deprecated it. We'll mark as "Other" unless we can map from title/subtitle.
-                cat = _kalshi_category(m)
-                if category and normalize_category(category) != cat:
+                cat = target_category if series_tickers and target_category else _kalshi_category(m)
+                if target_category and target_category != cat:
                     continue
                 
                 # Prefer the current quoted midpoint over a stale last trade.
@@ -550,15 +638,21 @@ class MarketSearchService:
             if not fetch_poly:
                 return [], False
             
-            p_limit = page_size if venue == "polymarket" else page_size * 2
-            p_offset = (page - 1) * page_size
+            p_limit = max(100, min(500, page_size * 10)) if category else (page_size if venue == "polymarket" else page_size * 2)
+            p_offset = 0 if category else (page - 1) * page_size
             
             # We fetch events to group by eventId natively
-            events = await self.gamma_client.list_events(active=True, limit=p_limit, offset=p_offset)
+            events = await self.gamma_client.list_events(
+                active=True,
+                limit=p_limit,
+                offset=p_offset,
+                order="volume_24hr",
+                ascending=False,
+            )
             
             results = []
             for ev in events:
-                cat = normalize_category(ev.raw_data.get("category", "") or ev.title)
+                cat = _polymarket_category(ev)
                 if category and normalize_category(category) != cat:
                     continue
                 

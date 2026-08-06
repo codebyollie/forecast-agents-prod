@@ -173,19 +173,25 @@ class KalshiClient:
                     headers=self._headers()
                 )
                 if resp.status_code == 200:
-                    return resp.json()
+                    data = resp.json()
+                    return data.get("tags_by_categories", data)
             except Exception as e:
                 logger.warning(f"[KalshiClient] get_tags_by_categories error: {e}")
         return {}
 
     async def get_series(self, category: str, limit: int = 200) -> List[str]:
         """Fetch series tickers for a given category."""
-        series_tickers = []
+        series_rows = []
         cursor = None
+        scan_limit = max(limit, 200)
         async with httpx.AsyncClient(verify=True) as client:
             try:
                 while True:
-                    params = {"category": category, "limit": 100}
+                    params = {
+                        "category": category,
+                        "limit": 100,
+                        "include_volume": "true",
+                    }
                     if cursor:
                         params["cursor"] = cursor
                     resp = await client.get(
@@ -196,15 +202,22 @@ class KalshiClient:
                     if resp.status_code == 200:
                         data = resp.json()
                         for s in data.get("series", []):
-                            series_tickers.append(s.get("ticker"))
+                            ticker = s.get("ticker")
+                            if ticker:
+                                try:
+                                    volume = float(s.get("volume") or s.get("volume_fp") or 0)
+                                except (TypeError, ValueError):
+                                    volume = 0.0
+                                series_rows.append((ticker, volume))
                         cursor = data.get("cursor")
-                        if not cursor or len(series_tickers) >= limit:
+                        if not cursor or len(series_rows) >= scan_limit:
                             break
                     else:
                         break
             except Exception as e:
                 logger.warning(f"[KalshiClient] get_series error: {e}")
-        return series_tickers[:limit]
+        series_rows.sort(key=lambda item: item[1], reverse=True)
+        return [ticker for ticker, _ in series_rows[:limit]]
 
     async def fetch_market_by_ticker(self, ticker: str) -> Optional[KalshiMarket]:
         """Fetch a specific Kalshi market by ticker symbol."""
