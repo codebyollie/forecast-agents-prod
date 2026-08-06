@@ -48,7 +48,21 @@ CATEGORY_MAP = {
     "economics": "Economy",
     "financials": "Economy",
     "business": "Economy",
+    "climate": "Climate",
+    "weather": "Climate",
+    "temperature": "Climate",
+    "temp ": "Climate",
+    "commodities": "Commodities",
+    "commodity": "Commodities",
+    "oil": "Commodities",
+    "gold": "Commodities",
+    "silver": "Commodities",
     "sports": "Sports",
+    "baseball": "Sports",
+    "basketball": "Sports",
+    "football": "Sports",
+    "soccer": "Sports",
+    "tennis": "Sports",
     "entertainment": "Entertainment",
     "pop culture": "Entertainment",
     "science & technology": "Tech",
@@ -488,10 +502,11 @@ class MarketSearchService:
                 # To support proper pagination, if category is selected, we might have to fetch general open and filter.
                 # Let's fetch general open markets and filter locally to ensure we can paginate.
             
-            # Fetch general open markets
-            # Pull enough non-MVE rows to survive zero-price filtering while
-            # still returning a full first page of genuinely quoted markets.
-            k_limit = max(100, page_size * 4)
+            # Kalshi returns markets in API order rather than by liquidity.
+            # The first ~100 rows are frequently newly-created, zero-volume
+            # hourly contracts, which made the UI look as if Kalshi had no
+            # useful markets. Pull the full supported page and sort locally.
+            k_limit = 1000
             mkts, next_cursor = await self.kalshi_client.fetch_markets(limit=k_limit, status="open", cursor=kalshi_cursor)
             
             results = []
@@ -504,11 +519,8 @@ class MarketSearchService:
                 if category and normalize_category(category) != cat:
                     continue
                 
-                price = None
-                if m.last_price is not None and m.last_price > 0:
-                    price = float(m.last_price)
-                elif m.yes_bid > 0 and m.yes_ask > 0:
-                    price = (m.yes_bid + m.yes_ask) / 2.0
+                # Prefer the current quoted midpoint over a stale last trade.
+                price = m.midpoint_price
                 
                 if price is not None and price > 0:
                     results.append({
@@ -519,6 +531,9 @@ class MarketSearchService:
                         "category": cat,
                         "volume": float(m.volume),
                         "liquidity": 0.0, # Kalshi liquidity is deprecated
+                        "yes_bid": round(float(m.yes_bid), 4),
+                        "yes_ask": round(float(m.yes_ask), 4),
+                        "spread": round(float(m.yes_ask - m.yes_bid), 4) if m.yes_bid > 0 and m.yes_ask > 0 else None,
                         "end_date": m.expiration_time,
                         "slug": m.event_ticker.lower(),
                         "image": None,

@@ -22,6 +22,9 @@ def test_normalize_category():
     assert normalize_category("Politics") == "Politics"
     assert normalize_category("US Elections") == "Politics"
     assert normalize_category("Bitcoin") == "Crypto"
+    assert normalize_category("Will the temp in Austin exceed 80 degrees?") == "Climate"
+    assert normalize_category("WTI Oil close price") == "Commodities"
+    assert normalize_category("Baseball game winner") == "Sports"
     assert normalize_category("Random Thing") == "Other"
 
 @pytest.mark.asyncio
@@ -69,6 +72,10 @@ async def test_browse_markets_normalized_shape(search_service):
     
     # Test all venues
     res = await search_service.browse_markets(venue="all", page_size=24)
+
+    search_service.kalshi_client.fetch_markets.assert_awaited_once_with(
+        limit=1000, status="open", cursor=None
+    )
     
     assert res["page"] == 1
     assert res["page_size"] == 24
@@ -176,3 +183,40 @@ async def test_polymarket_event_grouping(search_service):
     assert results[0]["outcomes"][0]["price"] == 0.3
     assert results[0]["outcomes"][1]["label"] == "Option B"
     assert results[0]["outcomes"][1]["price"] == 0.7
+
+
+@pytest.mark.asyncio
+async def test_kalshi_browse_prefers_live_midpoint_and_liquid_market(search_service):
+    stale_zero_volume = KalshiMarket(
+        ticker="KXEMPTY",
+        title="Empty market",
+        status="open",
+        last_price=0.5,
+        yes_bid=0.5,
+        yes_ask=0.5,
+        volume=0,
+    )
+    liquid = KalshiMarket(
+        ticker="KXLIQUID",
+        title="Liquid market",
+        status="open",
+        last_price=0.2,
+        yes_bid=0.6,
+        yes_ask=0.64,
+        volume=500,
+    )
+    search_service.kalshi_client.fetch_markets.return_value = (
+        [stale_zero_volume, liquid],
+        None,
+    )
+    search_service.gamma_client.list_events.return_value = []
+
+    res = await search_service.browse_markets(
+        venue="kalshi", page_size=1, sort="volume"
+    )
+
+    assert res["results"][0]["market_id"] == "KXLIQUID"
+    assert res["results"][0]["current_price"] == 0.62
+    assert res["results"][0]["yes_bid"] == 0.6
+    assert res["results"][0]["yes_ask"] == 0.64
+    assert res["results"][0]["spread"] == 0.04

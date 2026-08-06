@@ -117,7 +117,9 @@ class KalshiClient:
 
     async def fetch_markets(self, limit: int = 20, status: str = "open", series_ticker: Optional[str] = None, cursor: Optional[str] = None) -> Tuple[List[KalshiMarket], Optional[str]]:
         """Fetch list of open markets from Kalshi. Returns (markets, next_cursor)."""
-        async with httpx.AsyncClient(verify=True) as client:
+        # A full 1,000-market discovery page can take longer than httpx's
+        # default timeout during exchange rollovers.
+        async with httpx.AsyncClient(verify=True, timeout=20.0) as client:
             try:
                 params = {
                     "limit": limit,
