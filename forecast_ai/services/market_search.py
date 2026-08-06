@@ -647,10 +647,25 @@ class MarketSearchService:
         for r in combined:
             r.pop("_sort_date", None)
             
-        # If we fetched from both, we might have over-fetched. Slice to page_size.
-        # But wait, if we slice, the next page for Polymarket will use offset=page*page_size and skip items.
-        # This is a known limitation of federated naive pagination. We will just return the sliced amount.
-        final_results = combined[:page_size]
+        # If both venues are requested, a global volume sort can let
+        # Polymarket's much larger notional volumes fill the entire page and
+        # hide Kalshi completely. Keep the directory useful by reserving
+        # roughly half of the first page for each venue, then fill any spare
+        # slots from the remaining globally sorted results.
+        if venue == "all" and k_res and p_res:
+            kalshi_quota = max(1, page_size // 2)
+            polymarket_quota = max(1, page_size - kalshi_quota)
+            selected = k_res[:kalshi_quota] + p_res[:polymarket_quota]
+            selected_keys = {(r.get("venue"), r.get("market_id")) for r in selected}
+            if len(selected) < page_size:
+                selected.extend(
+                    r for r in combined
+                    if (r.get("venue"), r.get("market_id")) not in selected_keys
+                )
+            selected.sort(key=lambda x: x["volume"] or 0.0, reverse=True)
+            final_results = selected[:page_size]
+        else:
+            final_results = combined[:page_size]
         
         has_more = bool(k_next_cursor) or p_has_more
         

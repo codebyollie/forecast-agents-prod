@@ -220,3 +220,38 @@ async def test_kalshi_browse_prefers_live_midpoint_and_liquid_market(search_serv
     assert res["results"][0]["yes_bid"] == 0.6
     assert res["results"][0]["yes_ask"] == 0.64
     assert res["results"][0]["spread"] == 0.04
+
+
+@pytest.mark.asyncio
+async def test_all_venues_keeps_kalshi_visible_when_polymarket_volume_is_larger(search_service):
+    kalshi_markets = [
+        KalshiMarket(
+            ticker=f"KX{i}", title=f"Kalshi {i}", status="open",
+            last_price=0.4, volume=100 + i, event_ticker=f"KXE{i}"
+        )
+        for i in range(2)
+    ]
+    search_service.kalshi_client.fetch_markets.return_value = (kalshi_markets, None)
+
+    poly_markets = [
+        PolymarketMarket(
+            id=f"p{i}", question=f"Polymarket {i}", condition_id=f"c{i}",
+            slug=f"p-{i}", resolution_source="Source", active=True, closed=False,
+            end_date_iso="2026-12-31T00:00:00Z",
+            volume=100000 + i, raw_data={"outcomePrices": ["0.6"]}
+        )
+        for i in range(4)
+    ]
+    search_service.gamma_client.list_events.return_value = [
+        PolymarketEvent(
+            id=f"e{i}", title=f"Event {i}", slug=f"event-{i}",
+            description="", markets=[poly_markets[i]], raw_data={}
+        )
+        for i in range(4)
+    ]
+
+    res = await search_service.browse_markets(venue="all", page_size=4)
+    venues = [item["venue"] for item in res["results"]]
+
+    assert venues.count("Kalshi") == 2
+    assert venues.count("Polymarket") == 2
