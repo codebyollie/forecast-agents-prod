@@ -62,11 +62,19 @@ class PredictionRequest(BaseModel):
     facts_key: Optional[str] = None
     venue: Optional[str] = None
     source_venue: Optional[str] = None
+    category: Optional[str] = None
+    market_closes_at: Optional[str] = None
 
 class CalibrateRequest(BaseModel):
     agent_name: str
     outcome_correct: bool
     error_delta: float
+
+class ResolveForecastRequest(BaseModel):
+    market_id: str
+    outcome: int
+    resolution_source: str
+    resolved_at: str
 
 def get_pipeline() -> ForecastPipeline:
     if _pipeline is None:
@@ -118,6 +126,7 @@ async def integrations_status(
             "enabled": bool(getattr(pipeline.config.falcon, "enabled", False)),
             "configured": falcon_configured,
             "social_enabled": bool(getattr(pipeline.config.falcon, "social_enabled", False)),
+            "smart_money_enabled": bool(getattr(pipeline.config.falcon, "smart_money_enabled", False)),
             **falcon_runtime,
         },
         "tavily": {
@@ -197,6 +206,8 @@ async def predict(
             # FactsAI credentials are deployment secrets, never caller input.
             facts_key=None,
             venue=selected_venue,
+            category=req.category,
+            market_closes_at=req.market_closes_at,
         )
         agent_breakdown = [
             {
@@ -237,6 +248,9 @@ async def predict(
                 "conflicts_resolved": result.reasoning_trace.conflicts_resolved,
             },
             "market_context": result.metadata.get("market_context", []),
+            "opportunity_radar": result.metadata.get("opportunity_radar", {}),
+            "outcome_graph": result.metadata.get("outcome_graph", {}),
+            "proof": result.metadata.get("proof", {}),
             "timestamp": result.timestamp.isoformat(),
             "agent_breakdown": agent_breakdown,
             "individual_predictions": agent_breakdown,
@@ -270,6 +284,33 @@ async def get_stats(request: Request, pipeline: ForecastPipeline = Depends(get_p
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/proof/track-record")
+async def proof_track_record(request: Request, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    require_server_api_key(request)
+    return pipeline.memory_store.get_track_record()
+
+@router.post("/proof/resolve")
+async def resolve_forecasts(
+    request: Request,
+    req: ResolveForecastRequest,
+    pipeline: ForecastPipeline = Depends(get_pipeline),
+):
+    require_server_api_key(request)
+    if req.outcome not in (0, 1):
+        raise HTTPException(status_code=400, detail="Outcome must be 0 or 1.")
+    resolved = pipeline.memory_store.resolve_market_forecasts(
+        market_id=req.market_id,
+        outcome=req.outcome,
+        resolution_source=req.resolution_source,
+        resolved_at=req.resolved_at,
+    )
+    return {"market_id": req.market_id, "resolved_count": len(resolved), "forecasts": resolved}
+
+@router.post("/proof/resolve-due")
+async def resolve_due_forecasts(request: Request, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    require_server_api_key(request)
+    return await pipeline.resolve_due_forecasts()
 
 @router.post("/reputation/calibrate")
 async def calibrate_reputation(request: Request, req: CalibrateRequest, pipeline: ForecastPipeline = Depends(get_pipeline)):

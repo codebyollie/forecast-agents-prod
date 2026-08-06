@@ -56,9 +56,33 @@ def test_falcon_config_env_overrides(monkeypatch):
     monkeypatch.setenv("FALCON_API_TOKEN", "falcon-env-token")
     monkeypatch.setenv("FALCON_ENABLED", "true")
     monkeypatch.setenv("FALCON_SOCIAL_ENABLED", "true")
+    monkeypatch.setenv("FALCON_SMART_MONEY_ENABLED", "true")
 
     config: ForecastConfig = ConfigStore().load_config()
 
     assert config.falcon.api_token == "falcon-env-token"
     assert config.falcon.enabled is True
     assert config.falcon.social_enabled is True
+    assert config.falcon.smart_money_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_falcon_smart_money_joins_ranked_wallets_to_selected_market_trades():
+    source = FalconSource(
+        api_token="falcon-test-token",
+        api_url="https://retriever.falconapi.net/api/v2/semantic/retrieve/parameterized",
+        smart_money_enabled=True,
+    )
+    source._retrieve = AsyncMock(side_effect=[
+        {"data": {"results": [{"liquidity": 1000}]}},
+        {"data": {"results": [{"wallet": "0xabc", "h_score": 90}]}},
+        {"data": {"results": [{"wallet_proxy": "0xabc", "side": "BUY"}]}},
+    ])
+
+    evidence = await source.fetch_market_intelligence("fed-rate-cut", "Polymarket")
+
+    smart_money = next(item for item in evidence if item.source_name == "falcon_smart_money")
+    assert smart_money.metadata["status"] == "active"
+    assert smart_money.metadata["signals"]["smart_money_wallet_count"] == 1
+    assert source._retrieve.await_args_list[1].args[0] == 584
+    assert source._retrieve.await_args_list[2].args[0] == 556

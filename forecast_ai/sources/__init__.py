@@ -43,6 +43,9 @@ class SourceManager:
                 kalshi_markets_agent_id=config.falcon.kalshi_markets_agent_id,
                 social_pulse_agent_id=config.falcon.social_pulse_agent_id,
                 social_enabled=config.falcon.social_enabled,
+                falcon_score_agent_id=config.falcon.falcon_score_agent_id,
+                polymarket_trades_agent_id=config.falcon.polymarket_trades_agent_id,
+                smart_money_enabled=config.falcon.smart_money_enabled,
             )
         
         news_key = getattr(config.sources, "news_api_key", "") or os.getenv("NEWS_API_KEY", "")
@@ -187,6 +190,9 @@ class SourceManager:
             metadata = {
                 "market_id": market_id,
                 "venue": "Polymarket",
+                "volume": first.volume,
+                "liquidity": first.liquidity,
+                "expiration_time": first.end_date_iso,
                 "outcomes": [
                     {"label": token.get("outcome"), "price": price}
                     for market in selected[:limit]
@@ -231,6 +237,10 @@ class SourceManager:
                     "venue": "Kalshi",
                     "current_price": market.last_price,
                     "volume": market.volume,
+                    "open_interest": market.open_interest,
+                    "yes_bid": market.yes_bid,
+                    "yes_ask": market.yes_ask,
+                    "spread": orderbook.spread if orderbook else None,
                     "expiration_time": market.expiration_time,
                 },
             )]

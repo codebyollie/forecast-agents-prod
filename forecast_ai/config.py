@@ -33,6 +33,15 @@ class RobinhoodAgenticConfig:
     enabled: bool = False  # Per-user manual connection
 
 @dataclass
+class RobinhoodChainConfig:
+    stock_tokens_enabled: bool = True
+    stock_token_api_url: str = "https://api.robinhood.com/rhj"
+    rpc_url: str = "https://rpc.mainnet.chain.robinhood.com"
+    chain_id: int = 4663
+    registry_address: str = ""
+    proof_enabled: bool = False
+
+@dataclass
 class AgentSettings:
     enabled: bool = True
     provider: str = "openai"    # Provider name to route queries to
@@ -79,7 +88,10 @@ class FalconConfig:
     market_insights_agent_id: int = 575
     kalshi_markets_agent_id: int = 565
     social_pulse_agent_id: int = 585
+    falcon_score_agent_id: int = 584
+    polymarket_trades_agent_id: int = 556
     social_enabled: bool = False
+    smart_money_enabled: bool = False
 
 @dataclass
 class TavilyConfig:
@@ -104,6 +116,7 @@ class ForecastConfig:
     polymarket: PolymarketConfig = field(default_factory=PolymarketConfig)
     kalshi: KalshiConfig = field(default_factory=KalshiConfig)
     robinhood_agentic: RobinhoodAgenticConfig = field(default_factory=RobinhoodAgenticConfig)
+    robinhood_chain: RobinhoodChainConfig = field(default_factory=RobinhoodChainConfig)
     facts_ai: FactsAIConfig = field(default_factory=FactsAIConfig)
     falcon: FalconConfig = field(default_factory=FalconConfig)
     tavily: TavilyConfig = field(default_factory=TavilyConfig)

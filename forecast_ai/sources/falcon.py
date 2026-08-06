@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -53,6 +54,9 @@ class FalconSource(BaseSource):
         kalshi_markets_agent_id: int = 565,
         social_pulse_agent_id: int = 585,
         social_enabled: bool = False,
+        falcon_score_agent_id: int = 584,
+        polymarket_trades_agent_id: int = 556,
+        smart_money_enabled: bool = False,
     ):
         self.api_token = api_token
         self.api_url = api_url
@@ -61,6 +65,11 @@ class FalconSource(BaseSource):
         self.kalshi_markets_agent_id = kalshi_markets_agent_id
         self.social_pulse_agent_id = social_pulse_agent_id
         self.social_enabled = social_enabled
+        self.falcon_score_agent_id = falcon_score_agent_id
+        self.polymarket_trades_agent_id = polymarket_trades_agent_id
+        self.smart_money_enabled = smart_money_enabled
+        self._leaderboard_payload: Optional[Dict[str, Any]] = None
+        self._leaderboard_cached_at = 0.0
 
     async def _retrieve(self, agent_id: int, params: Dict[str, Any], limit: int = 25) -> Dict[str, Any]:
         if not self.api_token:
@@ -122,6 +131,118 @@ class FalconSource(BaseSource):
         data = payload.get("data", payload)
         return f"{label}: {json.dumps(data, ensure_ascii=False, default=str)[:7000]}"
 
+    @staticmethod
+    def _signal_snapshot(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract stable, UI-safe signal fields without assuming one response shape."""
+        wanted = {
+            "liquidity",
+            "volume",
+            "volume_total",
+            "concentration",
+            "holder_concentration",
+            "sentiment_score",
+            "mention_volume",
+            "narrative_trend",
+            "price_sentiment_divergence",
+            "falcon_score",
+            "win_rate",
+            "roi",
+            "total_pnl",
+        }
+        snapshot: Dict[str, Any] = {}
+
+        def visit(value: Any) -> None:
+            if len(snapshot) >= 20:
+                return
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    normalized = str(key).lower()
+                    if normalized in wanted and normalized not in snapshot:
+                        if isinstance(nested, (str, int, float, bool)) or nested is None:
+                            snapshot[normalized] = nested
+                    visit(nested)
+            elif isinstance(value, list):
+                for nested in value[:10]:
+                    visit(nested)
+
+        visit(payload.get("data", payload))
+        return snapshot
+
+    @staticmethod
+    def _records(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        data: Any = payload.get("data", payload)
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            for key in ("results", "items", "data", "trades", "leaderboard"):
+                nested = data.get(key)
+                if isinstance(nested, list):
+                    return [item for item in nested if isinstance(item, dict)]
+        return []
+
+    @staticmethod
+    def _wallet(record: Dict[str, Any]) -> str:
+        for key in ("wallet", "proxy_wallet", "wallet_proxy", "wallet_address"):
+            value = str(record.get(key) or "").lower()
+            if value.startswith("0x"):
+                return value
+        return ""
+
+    async def _smart_money(self, market_id: str) -> Optional[Evidence]:
+        if self._leaderboard_payload is None or time.time() - self._leaderboard_cached_at > 900:
+            self._leaderboard_payload = await self._retrieve(
+                self.falcon_score_agent_id,
+                {
+                    "min_win_rate_15d": "0.45",
+                    "max_win_rate_15d": "0.95",
+                    "min_total_trades_15d": "30",
+                    "min_pnl_15d": "5000",
+                    "sort_by": "roi",
+                },
+                limit=25,
+            )
+            self._leaderboard_cached_at = time.time()
+        trades_payload = await self._retrieve(
+            self.polymarket_trades_agent_id,
+            {"market_slug": market_id},
+            limit=100,
+        )
+        leaders = {
+            self._wallet(record): record
+            for record in self._records(self._leaderboard_payload)
+            if self._wallet(record)
+        }
+        matched = []
+        for trade in self._records(trades_payload):
+            wallet = self._wallet(trade)
+            if wallet and wallet in leaders:
+                matched.append({
+                    "wallet": wallet,
+                    "leader": leaders[wallet],
+                    "trade": trade,
+                })
+            if len(matched) >= 10:
+                break
+        return Evidence(
+            source_name="falcon_smart_money",
+            content=f"Falcon Smart Money: {json.dumps(matched, ensure_ascii=False, default=str)[:7000]}",
+            relevance_score=0.95,
+            title="Falcon Smart Money",
+            url="https://api.polymarketanalytics.com/",
+            metadata={
+                "provider": "Falcon",
+                "source_type": "smart_money",
+                "status": "active" if matched else "empty",
+                "partner": True,
+                "agent_ids": [self.falcon_score_agent_id, self.polymarket_trades_agent_id],
+                "market_id": market_id,
+                "signals": {
+                    "smart_money_wallet_count": len(matched),
+                    "smart_money_wallets": [item["wallet"] for item in matched],
+                },
+            },
+        )
+
     async def fetch_market_intelligence(
         self,
         market_id: str,
@@ -157,13 +278,17 @@ class FalconSource(BaseSource):
                 "agent_id": agent_id,
                 "market_id": market_id,
                 "venue": venue or "Polymarket",
+                "signals": self._signal_snapshot(payload),
             },
         ))
+
+        if self.smart_money_enabled and "kalshi" not in venue_name and "robinhood" not in venue_name:
+            results.append(await self._smart_money(market_id))
 
         if self.social_enabled and "kalshi" not in venue_name and "robinhood" not in venue_name:
             social_payload = await self._retrieve(
                 self.social_pulse_agent_id,
-                {"market_slug": market_id, "window": "24h"},
+                {"keywords": market_id.replace("-", " "), "hours_back": "24"},
                 limit=limit,
             )
             results.append(Evidence(
@@ -179,6 +304,7 @@ class FalconSource(BaseSource):
                     "partner": True,
                     "agent_id": self.social_pulse_agent_id,
                     "market_id": market_id,
+                    "signals": self._signal_snapshot(social_payload),
                 },
             ))
         return results

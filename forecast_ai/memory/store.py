@@ -12,6 +12,7 @@ from datetime import datetime
 
 from ..models.forecast import ForecastResult
 from ..config import ForecastConfig
+from ..proof.ledger import calculate_brier_score
 
 class MemoryStore:
     def __init__(self, config: ForecastConfig):
@@ -51,6 +52,12 @@ class MemoryStore:
         
         # Serialize ForecastResult
         entry = {
+            "forecast_id": result.metadata.get("proof", {}).get("forecast_id"),
+            "payload_hash": result.metadata.get("proof", {}).get("payload_hash"),
+            "question": result.metadata.get("question"),
+            "venue": result.metadata.get("venue"),
+            "category": result.metadata.get("category", "Other"),
+            "market_closes_at": result.metadata.get("market_closes_at"),
             "market_id": result.market_id,
             "probability": result.probability,
             "confidence": {
@@ -69,7 +76,10 @@ class MemoryStore:
             ],
             "metadata": result.metadata
         }
-        
+
+        forecast_id = entry.get("forecast_id")
+        if forecast_id and any(item.get("forecast_id") == forecast_id for item in forecasts):
+            return
         forecasts.append(entry)
         # Cap limit
         max_entries = self.config.memory.max_history_entries
@@ -105,3 +115,86 @@ class MemoryStore:
         
     def list_forecasts(self) -> List[Dict[str, Any]]:
         return self._load_json(self.forecasts_file)
+
+    def resolve_market_forecasts(
+        self,
+        market_id: str,
+        outcome: int,
+        resolution_source: str,
+        resolved_at: str,
+    ) -> List[Dict[str, Any]]:
+        if outcome not in (0, 1):
+            raise ValueError("Outcome must be 0 or 1.")
+        forecasts = self._load_json(self.forecasts_file)
+        resolved: List[Dict[str, Any]] = []
+        for entry in forecasts:
+            if entry.get("market_id") != market_id or entry.get("resolution"):
+                continue
+            consensus_brier = calculate_brier_score(entry.get("probability", 0.5), outcome)
+            agent_scores = []
+            for prediction in entry.get("predictions", []):
+                agent_brier = calculate_brier_score(prediction.get("probability", 0.5), outcome)
+                prediction["brier_score"] = agent_brier
+                agent_scores.append({
+                    "agent_id": prediction.get("agent_name"),
+                    "probability": prediction.get("probability"),
+                    "brier_score": agent_brier,
+                })
+                self.apply_agent_brier_score(prediction.get("agent_name", "unknown"), agent_brier)
+            entry["resolution"] = {
+                "outcome": outcome,
+                "resolved_at": resolved_at,
+                "source": resolution_source,
+                "consensus_brier_score": consensus_brier,
+                "agent_scores": agent_scores,
+            }
+            proof = entry.setdefault("metadata", {}).setdefault("proof", {})
+            if proof.get("status") != "verified_onchain":
+                proof["status"] = "resolved_offchain"
+            resolved.append(entry)
+        self._save_json(self.forecasts_file, forecasts)
+        return resolved
+
+    def apply_agent_brier_score(self, agent_name: str, brier_score: float) -> None:
+        if not self.config.memory.enable_reputation_updates:
+            return
+        reps = self.get_agent_reputations()
+        current = float(reps.get(agent_name, self.config.consensus.default_agent_weight))
+        target = max(0.1, min(2.0, 2.0 * (1.0 - float(brier_score))))
+        alpha = self.config.consensus.calibration_alpha
+        reps[agent_name] = round(current + alpha * (target - current), 6)
+        self._save_json(self.reputation_file, reps)
+
+    def get_track_record(self) -> Dict[str, Any]:
+        forecasts = self._load_json(self.forecasts_file)
+        resolved = [entry for entry in forecasts if entry.get("resolution")]
+        consensus_scores = [
+            float(entry["resolution"]["consensus_brier_score"])
+            for entry in resolved
+        ]
+        agents: Dict[str, Dict[str, Any]] = {}
+        categories: Dict[str, Dict[str, Any]] = {}
+        for entry in resolved:
+            category = str(entry.get("category") or "Other")
+            category_stat = categories.setdefault(category, {"resolved": 0, "brier_total": 0.0})
+            category_stat["resolved"] += 1
+            category_stat["brier_total"] += float(entry["resolution"]["consensus_brier_score"])
+            for score in entry["resolution"].get("agent_scores", []):
+                agent_id = str(score.get("agent_id") or "unknown")
+                stat = agents.setdefault(agent_id, {"resolved": 0, "brier_total": 0.0})
+                stat["resolved"] += 1
+                stat["brier_total"] += float(score.get("brier_score", 0.0))
+
+        for stats in (agents, categories):
+            for value in stats.values():
+                value["average_brier_score"] = round(value.pop("brier_total") / value["resolved"], 6)
+
+        return {
+            "total_forecasts": len(forecasts),
+            "resolved_forecasts": len(resolved),
+            "pending_forecasts": len(forecasts) - len(resolved),
+            "average_brier_score": round(sum(consensus_scores) / len(consensus_scores), 6) if consensus_scores else None,
+            "agent_reputations": self.get_agent_reputations(),
+            "agents": agents,
+            "categories": categories,
+        }

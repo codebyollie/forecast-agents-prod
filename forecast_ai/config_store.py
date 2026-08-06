@@ -105,6 +105,18 @@ class ConfigStore:
         if os.environ.get("ROBINHOOD_MCP_ENDPOINT"):
             config.robinhood_agentic.mcp_endpoint = os.environ["ROBINHOOD_MCP_ENDPOINT"]
 
+        # Robinhood Chain and Stock Token overrides
+        if os.environ.get("ROBINHOOD_STOCK_TOKENS_ENABLED"):
+            config.robinhood_chain.stock_tokens_enabled = os.environ["ROBINHOOD_STOCK_TOKENS_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("ROBINHOOD_STOCK_TOKEN_API_URL"):
+            config.robinhood_chain.stock_token_api_url = os.environ["ROBINHOOD_STOCK_TOKEN_API_URL"]
+        if os.environ.get("ROBINHOOD_CHAIN_RPC_URL"):
+            config.robinhood_chain.rpc_url = os.environ["ROBINHOOD_CHAIN_RPC_URL"]
+        if os.environ.get("FORECAST_REGISTRY_ADDRESS"):
+            config.robinhood_chain.registry_address = os.environ["FORECAST_REGISTRY_ADDRESS"]
+        if os.environ.get("FORECAST_PROOF_ENABLED"):
+            config.robinhood_chain.proof_enabled = os.environ["FORECAST_PROOF_ENABLED"].lower() in ("true", "1", "yes")
+
         # Server overrides
         if os.environ.get("SERVER_HOST"):
             config.server.host = os.environ["SERVER_HOST"]
@@ -144,6 +156,8 @@ class ConfigStore:
             config.falcon.api_url = os.environ["FALCON_API_URL"]
         if os.environ.get("FALCON_SOCIAL_ENABLED"):
             config.falcon.social_enabled = os.environ["FALCON_SOCIAL_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("FALCON_SMART_MONEY_ENABLED"):
+            config.falcon.smart_money_enabled = os.environ["FALCON_SMART_MONEY_ENABLED"].lower() in ("true", "1", "yes")
 
         # Tavily overrides
         if os.environ.get("TAVILY_API_KEY"):
@@ -186,6 +200,14 @@ class ConfigStore:
             ra = raw["robinhood_agentic"]
             config.robinhood_agentic.mcp_endpoint = ra.get("mcp_endpoint", config.robinhood_agentic.mcp_endpoint)
             config.robinhood_agentic.enabled = bool(ra.get("enabled", config.robinhood_agentic.enabled))
+
+        if "robinhood_chain" in raw:
+            rh_chain = raw["robinhood_chain"]
+            config.robinhood_chain.stock_tokens_enabled = bool(rh_chain.get("stock_tokens_enabled", config.robinhood_chain.stock_tokens_enabled))
+            config.robinhood_chain.stock_token_api_url = rh_chain.get("stock_token_api_url", config.robinhood_chain.stock_token_api_url)
+            config.robinhood_chain.rpc_url = rh_chain.get("rpc_url", config.robinhood_chain.rpc_url)
+            config.robinhood_chain.registry_address = rh_chain.get("registry_address", config.robinhood_chain.registry_address)
+            config.robinhood_chain.proof_enabled = bool(rh_chain.get("proof_enabled", config.robinhood_chain.proof_enabled))
 
         # Load Agents
         if "agents" in raw:
@@ -262,6 +284,13 @@ class ConfigStore:
             "robinhood_agentic": {
                 "mcp_endpoint": config.robinhood_agentic.mcp_endpoint,
                 "enabled": config.robinhood_agentic.enabled,
+            },
+            "robinhood_chain": {
+                "stock_tokens_enabled": config.robinhood_chain.stock_tokens_enabled,
+                "stock_token_api_url": config.robinhood_chain.stock_token_api_url,
+                "rpc_url": config.robinhood_chain.rpc_url,
+                "registry_address": config.robinhood_chain.registry_address,
+                "proof_enabled": config.robinhood_chain.proof_enabled,
             },
             "agents": {
                 name: {
