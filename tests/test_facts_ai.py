@@ -39,6 +39,19 @@ async def test_facts_ai_source_success():
         assert res["citations"][0]["url"] == "https://example.com/fed-analysis"
 
 @pytest.mark.asyncio
+async def test_facts_ai_uses_documented_query_payload():
+    source = FactsAISource(api_key="test_key", api_url="https://mock.factsai.org/answer")
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.json = lambda: {"data": {"answer": "Answer", "citations": []}}
+
+    with patch("httpx.AsyncClient.post", return_value=mock_resp) as post:
+        await source.fetch_deep_research("Question")
+
+    assert post.await_args.kwargs["json"] == {"query": "Question"}
+    assert post.await_args.kwargs["timeout"] == 90.0
+
+@pytest.mark.asyncio
 async def test_facts_ai_source_error_handling():
     source = FactsAISource(api_key="invalid_key", api_url="https://mock.factsai.org/answer")
 
@@ -83,6 +96,8 @@ async def test_facts_ai_agent_graceful_fallback():
         assert pred.probability == 0.75
         assert pred.agent_name == "research"
         assert "Test reasoning" in pred.reasoning
+        assert pred.provider_statuses["FactsAI"] == "unavailable"
+        assert any("FactsAI unavailable" in warning for warning in pred.confidence.warnings)
 
 def test_facts_ai_config_env_overrides():
     os.environ["FACTSAI_API_KEY"] = "forecast_test_key_123"

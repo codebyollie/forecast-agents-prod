@@ -49,12 +49,13 @@ class FactsAISource(BaseSource):
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        # text:true requests full article text in citations (per FactsAI docs)
-        payload = {"query": clean_query, "text": True}
+        # Keep the request body aligned with the public FactsAI API contract.
+        # The endpoint currently documents a single required `query` field.
+        payload = {"query": clean_query}
 
         async with httpx.AsyncClient() as client:
             try:
-                resp = await client.post(self.api_url, headers=headers, json=payload, timeout=30.0)
+                resp = await client.post(self.api_url, headers=headers, json=payload, timeout=90.0)
                 
                 if resp.status_code == 200:
                     res_data = resp.json()

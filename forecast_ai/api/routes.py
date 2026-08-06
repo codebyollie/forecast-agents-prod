@@ -176,6 +176,7 @@ async def predict(
                 "citations": p.citations,
                 "providers": p.research_providers,
                 "provider_insights": p.provider_insights,
+                "provider_statuses": p.provider_statuses,
             }
             for p in result.individual_predictions
         ]

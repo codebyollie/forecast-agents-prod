@@ -63,6 +63,7 @@ class ForecastAgent(ABC):
         citation_keys = set()
         research_providers = set()
         provider_insights: Dict[str, str] = {}
+        provider_statuses: Dict[str, str] = {}
 
         def infer_provider(item: Evidence) -> str:
             metadata_provider = str((item.metadata or {}).get("provider") or "").strip()
@@ -156,6 +157,7 @@ class ForecastAgent(ABC):
         # ── 1. FactsAI for Research / Macro / News ─────────────────────────
         facts_used = False
         if agent_name in ("research", "macro", "news") and facts_ai_enabled and facts_key:
+            provider_statuses["FactsAI"] = "requested"
             try:
                 from ..sources.facts_ai import FactsAISource
                 facts_source = FactsAISource(
@@ -201,12 +203,16 @@ class ForecastAgent(ABC):
                 facts_used = bool(res.get("answer") or res.get("citations"))
                 if facts_used:
                     research_providers.add("FactsAI")
+                    provider_statuses["FactsAI"] = "active"
+                else:
+                    provider_statuses["FactsAI"] = "empty"
             except Exception as e:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
                     f"[{self.name}] FactsAI failed ({e}). Falling back to OpenAI Web Search."
                 )
                 facts_ai_error = f"FactsAI unavailable: {e}"
+                provider_statuses["FactsAI"] = "unavailable"
 
         # Social and Reddit agents must use platform-native results. Tavily is
         # preferred because it supports domain filters and returns source URLs.
@@ -278,6 +284,8 @@ class ForecastAgent(ABC):
                     "Web Search (FactsAI fallback)" if agent_name in ("research", "macro", "news")
                     else f"Web Search ({agent_name.capitalize()})"
                 )
+                if agent_name in ("research", "macro", "news"):
+                    provider_statuses["OpenAI Web Search"] = "fallback"
                 allowed_domains = specialized_domains.get(agent_name)
                 accepted_citations = []
                 for c in ws_res.get("citations", []):
@@ -313,8 +321,6 @@ class ForecastAgent(ABC):
                                 "source_type": agent_name if allowed_domains else "web",
                             },
                         ))
-                # Clear FactsAI error since we recovered via web search
-                facts_ai_error = None
             except Exception as e:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
@@ -468,4 +474,5 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             citations=prediction_citations[:8],
             research_providers=sorted(research_providers),
             provider_insights=provider_insights,
+            provider_statuses=provider_statuses,
         )
