@@ -287,30 +287,60 @@ class FalconSource(BaseSource):
         ))
 
         if self.smart_money_enabled and "kalshi" not in venue_name and "robinhood" not in venue_name:
-            results.append(await self._smart_money(market_id))
+            try:
+                smart_money = await self._smart_money(market_id)
+                if smart_money is not None:
+                    results.append(smart_money)
+            except Exception as exc:
+                results.append(Evidence(
+                    source_name="falcon_smart_money_status",
+                    content="Falcon Smart Money was unavailable for this analysis.",
+                    relevance_score=0.0,
+                    metadata={
+                        "provider": "Falcon",
+                        "source_type": "smart_money_status",
+                        "status": "unavailable",
+                        "message": str(exc)[:240],
+                        "partner": True,
+                    },
+                ))
 
         if self.social_enabled and "kalshi" not in venue_name and "robinhood" not in venue_name:
-            social_payload = await self._retrieve(
-                self.social_pulse_agent_id,
-                {"keywords": market_id.replace("-", " "), "hours_back": "24"},
-                limit=limit,
-            )
-            results.append(Evidence(
-                source_name="falcon_social_pulse",
-                content=self._content("Falcon Social Pulse", social_payload),
-                relevance_score=0.92,
-                title="Falcon Social Pulse",
-                url="https://api.polymarketanalytics.com/",
-                metadata={
-                    "provider": "Falcon",
-                    "source_type": "social_intelligence",
-                    "status": "active",
-                    "partner": True,
-                    "agent_id": self.social_pulse_agent_id,
-                    "market_id": market_id,
-                    "signals": self._signal_snapshot(social_payload),
-                },
-            ))
+            try:
+                social_payload = await self._retrieve(
+                    self.social_pulse_agent_id,
+                    {"keywords": market_id.replace("-", " "), "hours_back": "24"},
+                    limit=limit,
+                )
+                results.append(Evidence(
+                    source_name="falcon_social_pulse",
+                    content=self._content("Falcon Social Pulse", social_payload),
+                    relevance_score=0.92,
+                    title="Falcon Social Pulse",
+                    url="https://api.polymarketanalytics.com/",
+                    metadata={
+                        "provider": "Falcon",
+                        "source_type": "social_intelligence",
+                        "status": "active",
+                        "partner": True,
+                        "agent_id": self.social_pulse_agent_id,
+                        "market_id": market_id,
+                        "signals": self._signal_snapshot(social_payload),
+                    },
+                ))
+            except Exception as exc:
+                results.append(Evidence(
+                    source_name="falcon_social_status",
+                    content="Falcon Social Pulse was unavailable for this analysis.",
+                    relevance_score=0.0,
+                    metadata={
+                        "provider": "Falcon",
+                        "source_type": "social_status",
+                        "status": "unavailable",
+                        "message": str(exc)[:240],
+                        "partner": True,
+                    },
+                ))
         return results
 
     async def fetch(self, query: str, limit: int = 5) -> List[Evidence]:

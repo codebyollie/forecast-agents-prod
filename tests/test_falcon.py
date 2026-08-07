@@ -4,7 +4,7 @@ import pytest
 
 from forecast_ai.config import ForecastConfig
 from forecast_ai.config_store import ConfigStore
-from forecast_ai.sources.falcon import FalconSource, get_falcon_runtime_status
+from forecast_ai.sources.falcon import FalconError, FalconSource, get_falcon_runtime_status
 
 
 @pytest.mark.asyncio
@@ -91,3 +91,29 @@ async def test_falcon_smart_money_joins_ranked_wallets_to_selected_market_trades
     assert smart_money.metadata["signals"]["smart_money_wallet_count"] == 1
     assert source._retrieve.await_args_list[1].args[0] == 584
     assert source._retrieve.await_args_list[2].args[0] == 556
+
+
+@pytest.mark.asyncio
+async def test_optional_falcon_layers_fail_independently_from_market_insights():
+    source = FalconSource(
+        api_token="falcon-test-token",
+        api_url="https://retriever.falconapi.net/api/v2/semantic/retrieve/parameterized",
+        smart_money_enabled=True,
+        social_enabled=True,
+    )
+    source._retrieve = AsyncMock(side_effect=[
+        {"data": {"results": [{"liquidity": 1000}]}},
+        FalconError(400, "smart money parameters rejected"),
+        FalconError(400, "social parameters rejected"),
+    ])
+
+    evidence = await source.fetch_market_intelligence(
+        "fed-rate-cut",
+        "Polymarket",
+        condition_id="0xcondition",
+    )
+
+    assert evidence[0].source_name == "falcon_market_intelligence"
+    assert evidence[0].metadata["status"] == "active"
+    assert any(item.source_name == "falcon_smart_money_status" for item in evidence)
+    assert any(item.source_name == "falcon_social_status" for item in evidence)

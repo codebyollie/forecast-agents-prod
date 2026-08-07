@@ -142,6 +142,16 @@ def build_opportunity_radar(
     )) * 100, 1)
 
     social_present = any((item.metadata or {}).get("source_type") == "social_intelligence" for item in falcon_items)
+    social_failed = any(
+        (item.metadata or {}).get("source_type") == "social_status"
+        and (item.metadata or {}).get("status") == "unavailable"
+        for item in falcon_items
+    )
+    smart_money_failed = any(
+        (item.metadata or {}).get("source_type") == "smart_money_status"
+        and (item.metadata or {}).get("status") == "unavailable"
+        for item in falcon_items
+    )
     return {
         "version": "1.0",
         "question": question,
@@ -164,7 +174,7 @@ def build_opportunity_radar(
         },
         "signals": {
             "smart_money": {
-                "status": "available" if smart_money_confirmed else "not_available",
+                "status": "available" if smart_money_confirmed else "unavailable" if smart_money_failed else "not_available",
                 "metrics": {
                     key: falcon_signals[key]
                     for key in (
@@ -175,7 +185,7 @@ def build_opportunity_radar(
                 },
             },
             "social": {
-                "status": "available" if social_present else "not_enabled",
+                "status": "available" if social_present else "unavailable" if social_failed else "not_enabled",
                 "trend": falcon_signals.get("narrative_trend"),
                 "sentiment": falcon_signals.get("sentiment_score"),
                 "mentions": falcon_signals.get("mention_volume"),

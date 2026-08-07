@@ -249,7 +249,11 @@ class SourceManager:
         async def with_falcon(base_evidence: List[Evidence]) -> List[Evidence]:
             if not base_evidence or self.falcon_source is None:
                 return base_evidence
-            cache_key = f"{venue_name or 'auto'}:{market_id}:social={self.falcon_source.social_enabled}"
+            cache_key = (
+                f"{venue_name or 'auto'}:{market_id}:"
+                f"social={self.falcon_source.social_enabled}:"
+                f"smart={self.falcon_source.smart_money_enabled}"
+            )
             cached = self.cache.get("falcon", cache_key, ttl_seconds=300)
             if cached is not None:
                 return base_evidence + cached
