@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -70,7 +71,8 @@ class RobinhoodStockTokenClient:
         lowered = question.lower()
         symbols: List[str] = []
         for keyword, candidates in _THEME_SYMBOLS.items():
-            if keyword in lowered:
+            pattern = rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])"
+            if re.search(pattern, lowered):
                 symbols.extend(candidates)
         return list(dict.fromkeys(symbols))[:5]
 

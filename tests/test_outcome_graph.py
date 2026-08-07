@@ -58,3 +58,12 @@ def test_robinhood_theme_mapping_is_bounded_and_deduplicated():
     assert symbols[0] == "SPY"
     assert len(symbols) <= 5
     assert len(symbols) == len(set(symbols))
+
+
+def test_rwa_theme_matching_uses_whole_words():
+    assert RobinhoodStockTokenClient.related_symbols(
+        "NATO/EU troops fighting in Ukraine by December 31, 2026?"
+    ) == []
+    assert RobinhoodStockTokenClient.related_symbols("Will AI investment grow?") == [
+        "NVDA", "MSFT", "GOOGL", "META"
+    ]
