@@ -87,7 +87,7 @@ class FalconConfig:
     """Falcon / Polymarket Analytics partner intelligence."""
     enabled: bool = False
     api_token: str = ""
-    api_url: str = "https://retriever.falconapi.net/api/v2/semantic/retrieve/parameterized"
+    api_url: str = "https://narrative.agent.heisenberg.so/api/v2/semantic/retrieve/parameterized"
     timeout_seconds: float = 30.0
     market_insights_agent_id: int = 575
     kalshi_markets_agent_id: int = 565

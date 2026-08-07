@@ -52,7 +52,13 @@ def test_radar_surfaces_falcon_social_and_partner_provenance():
                 "partner": True,
                 "status": "active",
                 "source_type": "social_intelligence",
-                "signals": {"narrative_trend": "bullish", "sentiment_score": 0.73},
+                "signals": {
+                    "narrative_trend": "bullish",
+                    "sentiment_score": 0.73,
+                    "acceleration": 1.6,
+                    "author_diversity_pct": 62,
+                    "tweet_count": 120,
+                },
             },
         ),
         Evidence(
@@ -66,5 +72,7 @@ def test_radar_surfaces_falcon_social_and_partner_provenance():
 
     assert radar["market"]["probability"] == 0.45
     assert radar["signals"]["social"]["trend"] == "bullish"
+    assert radar["signals"]["social"]["mentions"] == 120
+    assert radar["signals"]["social"]["acceleration"] == 1.6
     assert radar["risk"]["flags"] == ["wide_spread"]
     assert {item["provider"] for item in radar["providers"]} == {"FactsAI", "Falcon"}

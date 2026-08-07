@@ -152,6 +152,15 @@ def build_opportunity_radar(
         and (item.metadata or {}).get("status") == "unavailable"
         for item in falcon_items
     )
+    social_acceleration = _number(falcon_signals.get("acceleration"))
+    social_trend = falcon_signals.get("narrative_trend")
+    if social_trend is None and social_acceleration is not None:
+        social_trend = (
+            "surging" if social_acceleration >= 1.5
+            else "rising" if social_acceleration > 1.0
+            else "fading" if social_acceleration < 0.8
+            else "stable"
+        )
     return {
         "version": "1.0",
         "question": question,
@@ -186,9 +195,11 @@ def build_opportunity_radar(
             },
             "social": {
                 "status": "available" if social_present else "unavailable" if social_failed else "not_enabled",
-                "trend": falcon_signals.get("narrative_trend"),
+                "trend": social_trend,
                 "sentiment": falcon_signals.get("sentiment_score"),
-                "mentions": falcon_signals.get("mention_volume"),
+                "mentions": falcon_signals.get("mention_volume", falcon_signals.get("tweet_count")),
+                "acceleration": social_acceleration,
+                "author_diversity_pct": _number(falcon_signals.get("author_diversity_pct")),
                 "price_divergence": falcon_signals.get("price_sentiment_divergence"),
             },
         },

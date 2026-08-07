@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -144,6 +145,14 @@ class FalconSource(BaseSource):
             "mention_volume",
             "narrative_trend",
             "price_sentiment_divergence",
+            "acceleration",
+            "author_diversity_pct",
+            "pct_last_1h",
+            "pct_last_6h",
+            "tweet_count",
+            "like_count",
+            "retweet_count",
+            "reply_count",
             "falcon_score",
             "win_rate",
             "roi",
@@ -188,6 +197,23 @@ class FalconSource(BaseSource):
                 return value
         return ""
 
+    @staticmethod
+    def _social_keywords(market_id: str) -> str:
+        stop_words = {
+            "will", "the", "and", "for", "with", "from", "into", "before",
+            "after", "this", "that", "market", "december", "january", "february",
+            "march", "april", "may", "june", "july", "august", "september",
+            "october", "november",
+        }
+        tokens = []
+        for token in re.findall(r"[A-Za-z0-9]+", market_id.replace("-", " ")):
+            normalized = token.lower()
+            if len(normalized) < 3 or normalized in stop_words or normalized in tokens:
+                continue
+            tokens.append(normalized)
+        selected = tokens[:8] or ["prediction"]
+        return "{" + ",".join(selected) + "}"
+
     async def _smart_money(self, market_id: str) -> Optional[Evidence]:
         if self._leaderboard_payload is None or time.time() - self._leaderboard_cached_at > 900:
             self._leaderboard_payload = await self._retrieve(
@@ -195,7 +221,9 @@ class FalconSource(BaseSource):
                 {
                     "min_win_rate_15d": "0.45",
                     "max_win_rate_15d": "0.95",
+                    "min_roi_15d": "0",
                     "min_total_trades_15d": "30",
+                    "max_total_trades_15d": "5000",
                     "min_pnl_15d": "5000",
                     "sort_by": "roi",
                 },
@@ -309,7 +337,7 @@ class FalconSource(BaseSource):
             try:
                 social_payload = await self._retrieve(
                     self.social_pulse_agent_id,
-                    {"keywords": market_id.replace("-", " "), "hours_back": "24"},
+                    {"keywords": self._social_keywords(market_id), "hours_back": "24"},
                     limit=limit,
                 )
                 results.append(Evidence(

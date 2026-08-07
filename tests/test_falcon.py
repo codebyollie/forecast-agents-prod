@@ -117,3 +117,29 @@ async def test_optional_falcon_layers_fail_independently_from_market_insights():
     assert evidence[0].metadata["status"] == "active"
     assert any(item.source_name == "falcon_smart_money_status" for item in evidence)
     assert any(item.source_name == "falcon_social_status" for item in evidence)
+
+
+@pytest.mark.asyncio
+async def test_social_pulse_uses_documented_keyword_format():
+    source = FalconSource(
+        api_token="falcon-test-token",
+        api_url="https://narrative.agent.heisenberg.so/api/v2/semantic/retrieve/parameterized",
+        social_enabled=True,
+    )
+    source._retrieve = AsyncMock(side_effect=[
+        {"data": {"results": [{"liquidity": 1000}]}},
+        {"data": {"results": [{"acceleration": 1.7, "tweet_count": 120}]}},
+    ])
+
+    evidence = await source.fetch_market_intelligence(
+        "will-nato-eu-troops-fight-in-ukraine-before-december-2026",
+        "Polymarket",
+        condition_id="0xcondition",
+    )
+
+    social_call = source._retrieve.await_args_list[1]
+    assert social_call.args[0] == 585
+    assert social_call.args[1]["keywords"] == "{nato,troops,fight,ukraine,2026}"
+    assert social_call.args[1]["hours_back"] == "24"
+    social = next(item for item in evidence if item.source_name == "falcon_social_pulse")
+    assert social.metadata["signals"]["acceleration"] == 1.7
