@@ -189,6 +189,7 @@ class SourceManager:
             )
             metadata = {
                 "market_id": market_id,
+                "condition_id": first.condition_id,
                 "venue": "Polymarket",
                 "volume": first.volume,
                 "liquidity": first.liquidity,
@@ -253,9 +254,12 @@ class SourceManager:
             if cached is not None:
                 return base_evidence + cached
             try:
+                market_metadata = base_evidence[0].metadata or {}
+                condition_id = str(market_metadata.get("condition_id") or "").strip() or None
                 partner_evidence = await self.falcon_source.fetch_market_intelligence(
                     market_id=market_id,
                     venue=venue,
+                    condition_id=condition_id,
                     limit=25,
                 )
                 if partner_evidence:

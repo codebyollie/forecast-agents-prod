@@ -21,11 +21,12 @@ async def test_falcon_market_intelligence_uses_unified_endpoint_contract():
         evidence = await source.fetch_market_intelligence(
             market_id="fed-rate-cut-2026",
             venue="Polymarket",
+            condition_id="0xcondition",
         )
 
     payload = post.await_args.kwargs["json"]
     assert payload["agent_id"] == 575
-    assert payload["params"] == {"market_slug": "fed-rate-cut-2026"}
+    assert payload["params"] == {"condition_id": "0xcondition"}
     assert payload["formatter_config"] == {"format_type": "raw"}
     assert evidence[0].metadata["provider"] == "Falcon"
     assert evidence[0].metadata["status"] == "active"
@@ -79,7 +80,11 @@ async def test_falcon_smart_money_joins_ranked_wallets_to_selected_market_trades
         {"data": {"results": [{"wallet_proxy": "0xabc", "side": "BUY"}]}},
     ])
 
-    evidence = await source.fetch_market_intelligence("fed-rate-cut", "Polymarket")
+    evidence = await source.fetch_market_intelligence(
+        "fed-rate-cut",
+        "Polymarket",
+        condition_id="0xcondition",
+    )
 
     smart_money = next(item for item in evidence if item.source_name == "falcon_smart_money")
     assert smart_money.metadata["status"] == "active"

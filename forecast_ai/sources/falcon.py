@@ -247,6 +247,7 @@ class FalconSource(BaseSource):
         self,
         market_id: str,
         venue: Optional[str] = None,
+        condition_id: Optional[str] = None,
         limit: int = 25,
     ) -> List[Evidence]:
         venue_name = (venue or "").lower()
@@ -259,7 +260,9 @@ class FalconSource(BaseSource):
             label = "Falcon Kalshi market intelligence"
         else:
             agent_id = self.market_insights_agent_id
-            params = {"market_slug": market_id}
+            if not condition_id:
+                raise FalconError(422, "Polymarket condition_id is required for Falcon Market Insights.")
+            params = {"condition_id": condition_id}
             label = "Falcon Polymarket market intelligence"
 
         results: List[Evidence] = []
@@ -277,6 +280,7 @@ class FalconSource(BaseSource):
                 "partner": True,
                 "agent_id": agent_id,
                 "market_id": market_id,
+                "condition_id": condition_id,
                 "venue": venue or "Polymarket",
                 "signals": self._signal_snapshot(payload),
             },
