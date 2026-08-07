@@ -198,21 +198,84 @@ class FalconSource(BaseSource):
         return ""
 
     @staticmethod
-    def _social_keywords(market_id: str) -> str:
+    def _social_terms(query: str) -> List[str]:
         stop_words = {
             "will", "the", "and", "for", "with", "from", "into", "before",
             "after", "this", "that", "market", "december", "january", "february",
             "march", "april", "may", "june", "july", "august", "september",
-            "october", "november",
+            "october", "november", "next", "called", "call", "being", "be", "by",
         }
-        tokens = []
-        for token in re.findall(r"[A-Za-z0-9]+", market_id.replace("-", " ")):
+        short_topic_terms = {"ai", "eu", "uk", "us"}
+        tokens: List[str] = []
+        for token in re.findall(r"[A-Za-z0-9]+", query.replace("-", " ")):
             normalized = token.lower()
-            if len(normalized) < 3 or normalized in stop_words or normalized in tokens:
+            if (
+                (len(normalized) < 3 and normalized not in short_topic_terms)
+                or normalized in stop_words
+                or normalized in tokens
+            ):
                 continue
             tokens.append(normalized)
-        selected = tokens[:8] or ["prediction"]
-        return "{" + ",".join(selected) + "}"
+        return tokens[:8] or ["prediction"]
+
+    @classmethod
+    def _social_keywords(cls, query: str) -> str:
+        return "{" + ",".join(cls._social_terms(query)) + "}"
+
+    @classmethod
+    def _social_content(cls, payload: Dict[str, Any], query: str) -> str:
+        """Return a readable, topic-checked Social Pulse summary."""
+        records = cls._records(payload)
+        query_terms = {
+            term for term in cls._social_terms(query)
+            if not term.isdigit() and term != "prediction"
+        }
+        text_fields = ("content", "text", "title", "body", "tweet")
+        searchable_records: List[tuple[Dict[str, Any], str]] = []
+        relevant_records: List[tuple[Dict[str, Any], str]] = []
+
+        for record in records:
+            text = " ".join(
+                str(record.get(field) or "").strip()
+                for field in text_fields
+                if record.get(field)
+            ).strip()
+            if not text:
+                continue
+            searchable_records.append((record, text))
+            text_tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
+            if query_terms.intersection(text_tokens):
+                relevant_records.append((record, text))
+
+        # Falcon occasionally returns a valid but unrelated trending narrative.
+        # Never send that content into the forecasting agents.
+        if searchable_records and not relevant_records:
+            raise FalconError(422, "Falcon Social Pulse returned no topic-relevant records.")
+
+        signals = cls._signal_snapshot(payload)
+        metrics = []
+        metric_labels = (
+            ("tweet_count", "posts"),
+            ("acceleration", "acceleration"),
+            ("author_diversity_pct", "unique authors %"),
+            ("pct_last_1h", "last 1h %"),
+            ("pct_last_6h", "last 6h %"),
+        )
+        for key, label in metric_labels:
+            value = signals.get(key)
+            if value is not None:
+                metrics.append(f"{label}: {value}")
+
+        excerpts = []
+        for _, text in relevant_records[:3]:
+            compact = re.sub(r"\s+", " ", text).strip()
+            excerpts.append(compact[:320])
+
+        summary = f'Falcon Social Pulse for "{query}": '
+        summary += "; ".join(metrics) if metrics else "topic-relevant social data returned"
+        if excerpts:
+            summary += ". Relevant posts: " + " | ".join(excerpts)
+        return summary[:4000]
 
     async def _smart_money(self, market_id: str) -> Optional[Evidence]:
         if self._leaderboard_payload is None or time.time() - self._leaderboard_cached_at > 900:
@@ -276,6 +339,7 @@ class FalconSource(BaseSource):
         market_id: str,
         venue: Optional[str] = None,
         condition_id: Optional[str] = None,
+        social_query: Optional[str] = None,
         limit: int = 25,
     ) -> List[Evidence]:
         venue_name = (venue or "").lower()
@@ -335,14 +399,15 @@ class FalconSource(BaseSource):
 
         if self.social_enabled and "kalshi" not in venue_name and "robinhood" not in venue_name:
             try:
+                topic = (social_query or market_id).strip()
                 social_payload = await self._retrieve(
                     self.social_pulse_agent_id,
-                    {"keywords": self._social_keywords(market_id), "hours_back": "24"},
+                    {"keywords": self._social_keywords(topic), "hours_back": "24"},
                     limit=limit,
                 )
                 results.append(Evidence(
                     source_name="falcon_social_pulse",
-                    content=self._content("Falcon Social Pulse", social_payload),
+                    content=self._social_content(social_payload, topic),
                     relevance_score=0.92,
                     title="Falcon Social Pulse",
                     url="https://api.polymarketanalytics.com/",
@@ -353,6 +418,7 @@ class FalconSource(BaseSource):
                         "partner": True,
                         "agent_id": self.social_pulse_agent_id,
                         "market_id": market_id,
+                        "query": topic,
                         "signals": self._signal_snapshot(social_payload),
                     },
                 ))

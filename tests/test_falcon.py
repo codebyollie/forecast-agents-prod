@@ -135,11 +135,73 @@ async def test_social_pulse_uses_documented_keyword_format():
         "will-nato-eu-troops-fight-in-ukraine-before-december-2026",
         "Polymarket",
         condition_id="0xcondition",
+        social_query="Will NATO/EU troops fight in Ukraine before December 2026?",
     )
 
     social_call = source._retrieve.await_args_list[1]
     assert social_call.args[0] == 585
-    assert social_call.args[1]["keywords"] == "{nato,troops,fight,ukraine,2026}"
+    assert social_call.args[1]["keywords"] == "{nato,eu,troops,fight,ukraine,2026}"
     assert social_call.args[1]["hours_back"] == "24"
     social = next(item for item in evidence if item.source_name == "falcon_social_pulse")
     assert social.metadata["signals"]["acceleration"] == 1.7
+
+
+@pytest.mark.asyncio
+async def test_social_pulse_rejects_unrelated_trending_content():
+    source = FalconSource(
+        api_token="falcon-test-token",
+        api_url="https://narrative.agent.heisenberg.so/api/v2/semantic/retrieve/parameterized",
+        social_enabled=True,
+    )
+    source._retrieve = AsyncMock(side_effect=[
+        {"data": {"results": [{"liquidity": 1000}]}},
+        {"results": [{
+            "acceleration": "0.90",
+            "tweet_count": 697,
+            "content": "Warehouse robotics and autonomous drones are trending.",
+        }]},
+    ])
+
+    evidence = await source.fetch_market_intelligence(
+        "uk-election-2026",
+        "Polymarket",
+        condition_id="0xcondition",
+        social_query="Will the next UK election be called by December 31, 2026?",
+    )
+
+    assert not any(item.source_name == "falcon_social_pulse" for item in evidence)
+    status = next(item for item in evidence if item.source_name == "falcon_social_status")
+    assert status.metadata["status"] == "unavailable"
+    assert "topic-relevant" in status.metadata["message"]
+
+
+@pytest.mark.asyncio
+async def test_social_pulse_uses_market_title_and_returns_readable_summary():
+    source = FalconSource(
+        api_token="falcon-test-token",
+        api_url="https://narrative.agent.heisenberg.so/api/v2/semantic/retrieve/parameterized",
+        social_enabled=True,
+    )
+    source._retrieve = AsyncMock(side_effect=[
+        {"data": {"results": [{"liquidity": 1000}]}},
+        {"results": [{
+            "acceleration": "1.20",
+            "author_diversity_pct": "61.5",
+            "tweet_count": 120,
+            "content": "UK election discussion increased after the latest polling update.",
+        }]},
+    ])
+
+    evidence = await source.fetch_market_intelligence(
+        "opaque-market-id",
+        "Polymarket",
+        condition_id="0xcondition",
+        social_query="Will the next UK election be called by December 31, 2026?",
+    )
+
+    social_call = source._retrieve.await_args_list[1]
+    assert social_call.args[1]["keywords"] == "{uk,election,2026}"
+    social = next(item for item in evidence if item.source_name == "falcon_social_pulse")
+    assert "posts: 120" in social.content
+    assert "UK election discussion" in social.content
+    assert "{\"results\"" not in social.content

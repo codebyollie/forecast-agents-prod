@@ -249,8 +249,10 @@ class SourceManager:
         async def with_falcon(base_evidence: List[Evidence]) -> List[Evidence]:
             if not base_evidence or self.falcon_source is None:
                 return base_evidence
+            social_query = (base_evidence[0].title or market_id).strip()
             cache_key = (
                 f"{venue_name or 'auto'}:{market_id}:"
+                f"topic={social_query.lower()[:120]}:"
                 f"social={self.falcon_source.social_enabled}:"
                 f"smart={self.falcon_source.smart_money_enabled}"
             )
@@ -264,6 +266,7 @@ class SourceManager:
                     market_id=market_id,
                     venue=venue,
                     condition_id=condition_id,
+                    social_query=social_query,
                     limit=25,
                 )
                 if partner_evidence:
