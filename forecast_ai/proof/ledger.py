@@ -56,6 +56,11 @@ def build_forecast_envelope(
     venue: str | None,
     category: str | None,
     market_closes_at: str | None,
+    *,
+    proof_enabled: bool = False,
+    chain_id: int = 4663,
+    contract_address: str | None = None,
+    explorer_url: str | None = None,
 ) -> Dict[str, Any]:
     payload = {
         "schema": "forecast-ai-proof-v1",
@@ -80,6 +85,19 @@ def build_forecast_envelope(
     payload_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     payload_hash_hex = f"0x{payload_hash}"
     closes_at_unix = _unix_timestamp(market_closes_at)
+    created_at_unix = int(result.timestamp.timestamp())
+    queue_eligible = bool(
+        proof_enabled
+        and contract_address
+        and closes_at_unix
+        and closes_at_unix > created_at_unix
+    )
+    if not proof_enabled or not contract_address:
+        proof_status = "disabled"
+    elif not closes_at_unix or closes_at_unix <= created_at_unix:
+        proof_status = "not_eligible"
+    else:
+        proof_status = "pending_onchain"
     probability_rows = [
         ("consensus", float(result.probability)),
         *[(prediction.agent_name, float(prediction.probability)) for prediction in result.individual_predictions],
@@ -102,10 +120,12 @@ def build_forecast_envelope(
         "payload_hash": payload_hash_hex,
         "hash_algorithm": "sha256",
         "payload": payload,
-        "status": "pending_onchain",
+        "status": proof_status,
         "network": "Robinhood Chain",
-        "chain_id": 4663,
-        "contract_address": None,
+        "chain_id": int(chain_id),
+        "contract_address": contract_address or None,
+        "explorer_url": explorer_url.rstrip("/") if explorer_url else None,
         "transaction_hash": None,
+        "queue_eligible": queue_eligible,
         "onchain_commitments": commitments,
     }

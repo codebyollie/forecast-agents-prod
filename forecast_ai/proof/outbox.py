@@ -13,10 +13,20 @@ class ProofOutboxError(RuntimeError):
 
 
 class SupabaseProofOutbox:
-    def __init__(self, url: str, service_role_key: str, timeout_seconds: float = 20.0):
+    def __init__(
+        self,
+        url: str,
+        service_role_key: str,
+        timeout_seconds: float = 20.0,
+        *,
+        chain_id: int | None = None,
+        registry_address: str = "",
+    ):
         self.url = url.rstrip("/")
         self.service_role_key = service_role_key
         self.timeout_seconds = timeout_seconds
+        self.chain_id = chain_id
+        self.registry_address = registry_address.lower()
 
     @property
     def configured(self) -> bool:
@@ -38,11 +48,15 @@ class SupabaseProofOutbox:
         now = datetime.now(timezone.utc).isoformat()
         params = {
             "select": "*",
-            "status": "in.(pending,retry,submitted)",
+            "status": "in.(pending,processing,retry,submitted)",
             "next_attempt_at": f"lte.{now}",
             "order": "created_at.asc",
             "limit": str(max(1, min(limit, 50))),
         }
+        if self.chain_id is not None:
+            params["chain_id"] = f"eq.{self.chain_id}"
+        if self.registry_address:
+            params["registry_address"] = f"eq.{self.registry_address}"
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
                 f"{self.url}/rest/v1/forecast_proof_outbox",
@@ -61,11 +75,15 @@ class SupabaseProofOutbox:
         params = {
             "select": "*",
             "status": "eq.verified",
-            "resolution_status": "in.(pending,retry,submitted)",
+            "resolution_status": "in.(pending,processing,retry,submitted)",
             "resolution_next_attempt_at": f"lte.{now}",
             "order": "updated_at.asc",
             "limit": str(max(1, min(limit, 50))),
         }
+        if self.chain_id is not None:
+            params["chain_id"] = f"eq.{self.chain_id}"
+        if self.registry_address:
+            params["registry_address"] = f"eq.{self.registry_address}"
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
                 f"{self.url}/rest/v1/forecast_proof_outbox",
@@ -74,6 +92,36 @@ class SupabaseProofOutbox:
             )
         if response.status_code != 200:
             raise ProofOutboxError(f"Resolution outbox read failed ({response.status_code}): {response.text[:240]}")
+        data = response.json()
+        return data if isinstance(data, list) else []
+
+    async def list_due_markets(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return committed markets that are closed but not yet queued for resolution."""
+        if not self.configured:
+            return []
+        now = datetime.now(timezone.utc).isoformat()
+        params: Dict[str, str] = {
+            "select": "market_id,venue,closes_at",
+            "status": "eq.verified",
+            "resolution_status": "is.null",
+            "closes_at": f"lte.{now}",
+            "order": "closes_at.asc",
+            "limit": str(max(1, min(limit, 500))),
+        }
+        if self.chain_id is not None:
+            params["chain_id"] = f"eq.{self.chain_id}"
+        if self.registry_address:
+            params["registry_address"] = f"eq.{self.registry_address}"
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.get(
+                f"{self.url}/rest/v1/forecast_proof_outbox",
+                headers=self._headers(),
+                params=params,
+            )
+        if response.status_code != 200:
+            raise ProofOutboxError(
+                f"Due market read failed ({response.status_code}): {response.text[:240]}"
+            )
         data = response.json()
         return data if isinstance(data, list) else []
 
@@ -94,6 +142,7 @@ class SupabaseProofOutbox:
             "status": "processing",
             "attempts": int(row.get("attempts") or 0) + 1,
             "last_error": None,
+            "next_attempt_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
         })
 
     async def mark_submitted(self, row_id: str, tx_hash: str) -> None:
@@ -131,15 +180,26 @@ class SupabaseProofOutbox:
         market_id: str,
         outcome: int,
         resolution_hash: str,
+        venue: str | None = None,
     ) -> None:
         if not self.configured:
             return
         now = datetime.now(timezone.utc).isoformat()
+        params: Dict[str, str] = {
+            "market_id": f"eq.{market_id}",
+            "status": "eq.verified",
+        }
+        if venue:
+            params["venue"] = f"eq.{venue}"
+        if self.chain_id is not None:
+            params["chain_id"] = f"eq.{self.chain_id}"
+        if self.registry_address:
+            params["registry_address"] = f"eq.{self.registry_address}"
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.patch(
                 f"{self.url}/rest/v1/forecast_proof_outbox",
                 headers=self._headers("return=minimal"),
-                params={"market_id": f"eq.{market_id}"},
+                params=params,
                 json={
                     "outcome": bool(outcome),
                     "resolution_hash": resolution_hash,
@@ -156,7 +216,89 @@ class SupabaseProofOutbox:
             "resolution_status": "processing",
             "resolution_attempts": int(row.get("resolution_attempts") or 0) + 1,
             "resolution_last_error": None,
+            "resolution_next_attempt_at": (
+                datetime.now(timezone.utc) + timedelta(minutes=5)
+            ).isoformat(),
         })
+
+    async def get_track_record(self) -> Dict[str, Any]:
+        """Build durable calibration stats from verified onchain proof rows."""
+        if not self.configured:
+            return {}
+        params: Dict[str, str] = {
+            "select": "forecast_id,category,status,resolution_status,outcome,commitments",
+            "order": "created_at.asc",
+            "limit": "5000",
+        }
+        if self.chain_id is not None:
+            params["chain_id"] = f"eq.{self.chain_id}"
+        if self.registry_address:
+            params["registry_address"] = f"eq.{self.registry_address}"
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.get(
+                f"{self.url}/rest/v1/forecast_proof_outbox",
+                headers=self._headers(),
+                params=params,
+            )
+        if response.status_code != 200:
+            raise ProofOutboxError(
+                f"Track record read failed ({response.status_code}): {response.text[:240]}"
+            )
+        rows = response.json()
+        if not isinstance(rows, list):
+            rows = []
+
+        agents: Dict[str, Dict[str, Any]] = {}
+        categories: Dict[str, Dict[str, Any]] = {}
+        resolved_rows = [
+            row for row in rows
+            if row.get("status") == "verified" and row.get("resolution_status") == "verified"
+        ]
+        consensus_scores: List[float] = []
+        for row in resolved_rows:
+            outcome = 1 if bool(row.get("outcome")) else 0
+            category_name = str(row.get("category") or "Other")
+            for commitment in row.get("commitments") or []:
+                if not isinstance(commitment, dict):
+                    continue
+                probability = max(
+                    0.0,
+                    min(1.0, float(commitment.get("probability_bps") or 0) / 10_000),
+                )
+                score = (probability - outcome) ** 2
+                agent_name = str(commitment.get("agent_name") or "unknown")
+                stat = agents.setdefault(agent_name, {"resolved": 0, "brier_total": 0.0})
+                stat["resolved"] += 1
+                stat["brier_total"] += score
+                if agent_name == "consensus":
+                    consensus_scores.append(score)
+                    category = categories.setdefault(
+                        category_name, {"resolved": 0, "brier_total": 0.0}
+                    )
+                    category["resolved"] += 1
+                    category["brier_total"] += score
+
+        for collection in (agents, categories):
+            for value in collection.values():
+                value["average_brier_score"] = round(
+                    value.pop("brier_total") / value["resolved"], 6
+                )
+        return {
+            "source": "onchain_outbox",
+            "chain_id": self.chain_id,
+            "registry_address": self.registry_address or None,
+            "total_forecasts": len(rows),
+            "committed_forecasts": sum(1 for row in rows if row.get("status") == "verified"),
+            "resolved_forecasts": len(resolved_rows),
+            "pending_forecasts": sum(1 for row in rows if row.get("status") == "verified") - len(resolved_rows),
+            "failed_forecasts": sum(1 for row in rows if row.get("status") == "failed"),
+            "average_brier_score": (
+                round(sum(consensus_scores) / len(consensus_scores), 6)
+                if consensus_scores else None
+            ),
+            "agents": agents,
+            "categories": categories,
+        }
 
     async def mark_resolution_submitted(self, row_id: str, tx_hash: str) -> None:
         await self.update(row_id, {

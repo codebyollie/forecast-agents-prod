@@ -24,6 +24,7 @@ class ApiServer:
         self.app = FastAPI(title="Forecast AI API", version="0.2.0")
         self._server_task: Optional[asyncio.Task] = None
         self.proof_publisher = ProofPublisher(config.robinhood_chain)
+        self._proof_resolution_task: Optional[asyncio.Task] = None
         self._init_app()
 
     def _init_app(self):
@@ -48,10 +49,32 @@ class ApiServer:
         @self.app.on_event("startup")
         async def start_proof_publisher():
             await self.proof_publisher.start()
+            if self.proof_publisher.configured:
+                self._proof_resolution_task = asyncio.create_task(
+                    self._run_resolution_loop(), name="forecast-proof-resolver"
+                )
 
         @self.app.on_event("shutdown")
         async def stop_proof_publisher():
+            if self._proof_resolution_task:
+                self._proof_resolution_task.cancel()
+                try:
+                    await self._proof_resolution_task
+                except asyncio.CancelledError:
+                    pass
+                self._proof_resolution_task = None
             await self.proof_publisher.stop()
+
+    async def _run_resolution_loop(self) -> None:
+        """Queue official closed-market outcomes without invoking an LLM."""
+        while True:
+            try:
+                await self.pipeline.resolve_due_forecasts()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("[ProofResolver] Resolution check failed: %s", exc)
+            await asyncio.sleep(self.config.robinhood_chain.resolution_interval_seconds)
 
     async def start(self):
         """

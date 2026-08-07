@@ -26,6 +26,7 @@ contract ForecastRegistry {
         uint64 closesAt;
         uint64 resolvedAt;
         uint32 brierScoreBps;
+        bytes32 resolutionHash;
         address submitter;
         bool resolved;
         bool outcome;
@@ -37,6 +38,7 @@ contract ForecastRegistry {
     }
 
     address public owner;
+    bool public commitmentsPaused;
     mapping(address => bool) public resolvers;
     mapping(bytes32 => address) public agentOwners;
     mapping(bytes32 => ForecastCommitment) public forecasts;
@@ -45,7 +47,9 @@ contract ForecastRegistry {
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event ResolverUpdated(address indexed resolver, bool enabled);
+    event CommitmentsPaused(bool paused);
     event AgentRegistered(bytes32 indexed agentId, address indexed agentOwner);
+    event AgentOwnerUpdated(bytes32 indexed agentId, address indexed previousOwner, address indexed newOwner);
     event ForecastCommitted(
         bytes32 indexed forecastId,
         bytes32 indexed marketIdHash,
@@ -69,6 +73,7 @@ contract ForecastRegistry {
     error NotFound();
     error AlreadyResolved();
     error TooEarly();
+    error Paused();
 
     constructor() {
         owner = msg.sender;
@@ -99,6 +104,11 @@ contract ForecastRegistry {
         emit ResolverUpdated(resolver, enabled);
     }
 
+    function setCommitmentsPaused(bool paused) external onlyOwner {
+        commitmentsPaused = paused;
+        emit CommitmentsPaused(paused);
+    }
+
     function registerAgent(bytes32 agentId) external {
         _registerAgent(agentId, msg.sender);
     }
@@ -112,6 +122,16 @@ contract ForecastRegistry {
         for (uint256 i = 0; i < agentIds.length; ++i) {
             _registerAgent(agentIds[i], agentOwner);
         }
+    }
+
+    /// @notice Rotates an agent publisher without changing its immutable forecast history.
+    function setAgentOwner(bytes32 agentId, address newAgentOwner) external onlyOwner {
+        address previousOwner = agentOwners[agentId];
+        if (agentId == bytes32(0) || previousOwner == address(0) || newAgentOwner == address(0)) {
+            revert InvalidInput();
+        }
+        agentOwners[agentId] = newAgentOwner;
+        emit AgentOwnerUpdated(agentId, previousOwner, newAgentOwner);
     }
 
     function _registerAgent(bytes32 agentId, address agentOwner) internal {
@@ -133,6 +153,7 @@ contract ForecastRegistry {
     }
 
     function _commit(ForecastInput calldata input) internal {
+        if (commitmentsPaused) revert Paused();
         if (
             input.forecastId == bytes32(0)
                 || input.payloadHash == bytes32(0)
@@ -141,8 +162,22 @@ contract ForecastRegistry {
                 || input.probabilityBps > 10_000
                 || input.closesAt <= block.timestamp
         ) revert InvalidInput();
-        if (forecasts[input.forecastId].committedAt != 0) revert AlreadyExists();
         if (agentOwners[input.agentId] != msg.sender) revert Unauthorized();
+
+        ForecastCommitment storage existing = forecasts[input.forecastId];
+        if (existing.committedAt != 0) {
+            // Safe retries are idempotent; conflicting data remains impossible.
+            if (
+                existing.payloadHash == input.payloadHash
+                    && existing.marketIdHash == input.marketIdHash
+                    && existing.agentId == input.agentId
+                    && existing.categoryId == input.categoryId
+                    && existing.probabilityBps == input.probabilityBps
+                    && existing.closesAt == input.closesAt
+                    && existing.submitter == msg.sender
+            ) return;
+            revert AlreadyExists();
+        }
 
         forecasts[input.forecastId] = ForecastCommitment({
             payloadHash: input.payloadHash,
@@ -154,6 +189,7 @@ contract ForecastRegistry {
             closesAt: input.closesAt,
             resolvedAt: 0,
             brierScoreBps: 0,
+            resolutionHash: bytes32(0),
             submitter: msg.sender,
             resolved: false,
             outcome: false
@@ -185,9 +221,13 @@ contract ForecastRegistry {
     }
 
     function _resolve(bytes32 forecastId, bool outcome, bytes32 resolutionHash) internal {
+        if (resolutionHash == bytes32(0)) revert InvalidInput();
         ForecastCommitment storage forecast = forecasts[forecastId];
         if (forecast.committedAt == 0) revert NotFound();
-        if (forecast.resolved) revert AlreadyResolved();
+        if (forecast.resolved) {
+            if (forecast.outcome == outcome && forecast.resolutionHash == resolutionHash) return;
+            revert AlreadyResolved();
+        }
         if (block.timestamp < forecast.closesAt) revert TooEarly();
 
         uint256 errorBps = outcome ? 10_000 - forecast.probabilityBps : forecast.probabilityBps;
@@ -196,6 +236,7 @@ contract ForecastRegistry {
         forecast.outcome = outcome;
         forecast.resolvedAt = uint64(block.timestamp);
         forecast.brierScoreBps = brierScoreBps;
+        forecast.resolutionHash = resolutionHash;
 
         ScoreStats storage total = agentStats[forecast.agentId];
         total.resolvedCount += 1;

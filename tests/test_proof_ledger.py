@@ -40,13 +40,44 @@ def test_resolution_hash_is_deterministic_and_outcome_specific():
 
 def test_envelope_hash_is_deterministic():
     result = _forecast()
-    first = build_forecast_envelope(result, "Question?", "Polymarket", "Politics", "2030-01-01")
-    second = build_forecast_envelope(result, "Question?", "Polymarket", "Politics", "2030-01-01")
+    options = {
+        "proof_enabled": True,
+        "chain_id": 46630,
+        "contract_address": "0x1111111111111111111111111111111111111111",
+        "explorer_url": "https://explorer.testnet.chain.robinhood.com/",
+    }
+    first = build_forecast_envelope(result, "Question?", "Polymarket", "Politics", "2030-01-01", **options)
+    second = build_forecast_envelope(result, "Question?", "Polymarket", "Politics", "2030-01-01", **options)
     assert first["payload_hash"] == second["payload_hash"]
     assert first["status"] == "pending_onchain"
+    assert first["queue_eligible"] is True
+    assert first["chain_id"] == 46630
+    assert first["explorer_url"] == "https://explorer.testnet.chain.robinhood.com"
     assert len(first["onchain_commitments"]) == 2
     assert first["onchain_commitments"][0]["agent_name"] == "consensus"
     assert first["onchain_commitments"][0]["probability_bps"] == 6000
+
+
+def test_envelope_is_not_queued_without_a_deployed_registry():
+    proof = build_forecast_envelope(
+        _forecast(), "Question?", "Polymarket", "Politics", "2030-01-01"
+    )
+    assert proof["status"] == "disabled"
+    assert proof["queue_eligible"] is False
+
+
+def test_envelope_is_not_queued_without_a_future_close_time():
+    proof = build_forecast_envelope(
+        _forecast(),
+        "Question?",
+        "Polymarket",
+        "Politics",
+        None,
+        proof_enabled=True,
+        contract_address="0x1111111111111111111111111111111111111111",
+    )
+    assert proof["status"] == "not_eligible"
+    assert proof["queue_eligible"] is False
 
 
 def test_resolution_creates_real_track_record(tmp_path: Path):

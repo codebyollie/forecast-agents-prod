@@ -102,12 +102,17 @@ def commitment_tuples(commitments: List[Dict[str, Any]]) -> List[tuple[Any, ...]
 class ProofPublisher:
     def __init__(self, config: RobinhoodChainConfig):
         self.config = config
-        self.outbox = SupabaseProofOutbox(config.supabase_url, config.supabase_service_role_key)
+        self.outbox = SupabaseProofOutbox(
+            config.supabase_url,
+            config.supabase_service_role_key,
+            chain_id=config.chain_id,
+            registry_address=config.registry_address,
+        )
         self._task: Optional[asyncio.Task] = None
 
     @property
     def configured(self) -> bool:
-        return bool(
+        base_configured = bool(
             self.config.proof_enabled
             and self.config.rpc_url
             and self.config.registry_address
@@ -116,6 +121,14 @@ class ProofPublisher:
             and Account is not None
             and Web3 is not None
         )
+        if not base_configured:
+            return False
+        try:
+            Account.from_key(self.config.publisher_private_key)
+            Web3.to_checksum_address(self.config.registry_address)
+        except (TypeError, ValueError):
+            return False
+        return True
 
     async def start(self) -> None:
         if not self.configured:
@@ -123,7 +136,8 @@ class ProofPublisher:
             return
         if self._task and not self._task.done():
             return
-        _set_status("ready")
+        account = Account.from_key(self.config.publisher_private_key)
+        _set_status("ready", f"Publisher {account.address} ready on chain {self.config.chain_id}.")
         self._task = asyncio.create_task(self._run_loop(), name="forecast-proof-publisher")
 
     async def stop(self) -> None:
@@ -183,6 +197,9 @@ class ProofPublisher:
             "resolutions_verified": resolution_result["verified"],
             "resolutions_failed": resolution_result["failed"],
         }
+
+    async def track_record(self) -> Dict[str, Any]:
+        return await self.outbox.get_track_record()
 
     async def _publish_resolutions(self, limit: int) -> Dict[str, int]:
         rows = await self.outbox.list_resolution_work(limit=limit)

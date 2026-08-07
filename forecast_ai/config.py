@@ -38,12 +38,14 @@ class RobinhoodChainConfig:
     stock_token_api_url: str = "https://api.robinhood.com/rhj"
     rpc_url: str = "https://rpc.mainnet.chain.robinhood.com"
     chain_id: int = 4663
+    explorer_url: str = "https://robinhoodchain.blockscout.com"
     registry_address: str = ""
     proof_enabled: bool = False
     publisher_private_key: str = ""
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     publish_interval_seconds: int = 15
+    resolution_interval_seconds: int = 300
 
 @dataclass
 class AgentSettings:

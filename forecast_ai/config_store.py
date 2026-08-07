@@ -114,6 +114,10 @@ class ConfigStore:
             config.robinhood_chain.rpc_url = os.environ["ROBINHOOD_CHAIN_RPC_URL"]
         if os.environ.get("ROBINHOOD_CHAIN_ID"):
             config.robinhood_chain.chain_id = int(os.environ["ROBINHOOD_CHAIN_ID"])
+        if os.environ.get("ROBINHOOD_CHAIN_EXPLORER_URL"):
+            config.robinhood_chain.explorer_url = os.environ["ROBINHOOD_CHAIN_EXPLORER_URL"].rstrip("/")
+        elif config.robinhood_chain.chain_id == 46630:
+            config.robinhood_chain.explorer_url = "https://explorer.testnet.chain.robinhood.com"
         if os.environ.get("FORECAST_REGISTRY_ADDRESS"):
             config.robinhood_chain.registry_address = os.environ["FORECAST_REGISTRY_ADDRESS"]
         if os.environ.get("FORECAST_PROOF_ENABLED"):
@@ -128,6 +132,11 @@ class ConfigStore:
             config.robinhood_chain.publish_interval_seconds = max(
                 5,
                 int(os.environ["FORECAST_PROOF_PUBLISH_INTERVAL_SECONDS"]),
+            )
+        if os.environ.get("FORECAST_PROOF_RESOLUTION_INTERVAL_SECONDS"):
+            config.robinhood_chain.resolution_interval_seconds = max(
+                60,
+                int(os.environ["FORECAST_PROOF_RESOLUTION_INTERVAL_SECONDS"]),
             )
 
         # Server overrides

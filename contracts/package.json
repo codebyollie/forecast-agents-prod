@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "compile": "hardhat compile",
+    "test": "hardhat test",
     "deploy:testnet": "hardhat run scripts/deploy.cjs --network robinhoodTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.cjs --network robinhoodMainnet"
   },

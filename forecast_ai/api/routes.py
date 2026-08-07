@@ -290,13 +290,32 @@ async def get_stats(request: Request, pipeline: ForecastPipeline = Depends(get_p
 @router.get("/proof/track-record")
 async def proof_track_record(request: Request, pipeline: ForecastPipeline = Depends(get_pipeline)):
     require_server_api_key(request)
-    return pipeline.memory_store.get_track_record()
+    if _proof_publisher is not None and _proof_publisher.configured:
+        try:
+            durable = await _proof_publisher.track_record()
+            if durable:
+                return durable
+        except Exception as exc:
+            fallback_error = str(exc)[:240]
+        else:
+            fallback_error = None
+    else:
+        fallback_error = None
+    fallback = pipeline.memory_store.get_track_record()
+    fallback["source"] = "local_memory"
+    if fallback_error:
+        fallback["onchain_error"] = fallback_error
+    return fallback
 
 @router.get("/proof/publisher-status")
 async def proof_publisher_status(request: Request):
     require_server_api_key(request)
     status = get_proof_publisher_status()
     status["configured"] = bool(_proof_publisher and _proof_publisher.configured)
+    if _proof_publisher:
+        status["chain_id"] = _proof_publisher.config.chain_id
+        status["registry_address"] = _proof_publisher.config.registry_address or None
+        status["explorer_url"] = _proof_publisher.config.explorer_url or None
     return status
 
 @router.post("/proof/publish-pending")

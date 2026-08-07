@@ -21,6 +21,7 @@ def test_config_store_env_overrides(tmp_path, monkeypatch):
     assert cfg.kalshi.api_key == "env_kalshi_key_789"
     assert cfg.server.port == 30005
     assert cfg.robinhood_chain.chain_id == 46630
+    assert cfg.robinhood_chain.explorer_url == "https://explorer.testnet.chain.robinhood.com"
 
 def test_default_and_fallback_provider_defaults():
     cfg = ForecastConfig()

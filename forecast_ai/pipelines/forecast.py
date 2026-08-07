@@ -85,6 +85,8 @@ class ForecastPipeline:
         self.proof_outbox = SupabaseProofOutbox(
             config.robinhood_chain.supabase_url,
             config.robinhood_chain.supabase_service_role_key,
+            chain_id=config.robinhood_chain.chain_id,
+            registry_address=config.robinhood_chain.registry_address,
         )
         market_search = MarketSearchService(
             kalshi_base_url=config.kalshi.api_base_url,
@@ -308,17 +310,17 @@ class ForecastPipeline:
             venue=venue,
             category=category,
             market_closes_at=market_closes_at,
+            proof_enabled=self.config.robinhood_chain.proof_enabled,
+            chain_id=self.config.robinhood_chain.chain_id,
+            contract_address=self.config.robinhood_chain.registry_address or None,
+            explorer_url=self.config.robinhood_chain.explorer_url,
         )
-        proof["chain_id"] = self.config.robinhood_chain.chain_id
-        proof["contract_address"] = self.config.robinhood_chain.registry_address or None
-        if not self.config.robinhood_chain.proof_enabled or not self.config.robinhood_chain.registry_address:
-            proof["status"] = "pending_onchain"
         result.metadata["proof"] = proof
         result.metadata["opportunity_radar"]["proof"] = {
             key: proof.get(key)
             for key in (
                 "status", "network", "chain_id", "forecast_id", "payload_hash",
-                "contract_address", "transaction_hash",
+                "contract_address", "explorer_url", "transaction_hash", "queue_eligible",
             )
         }
 
@@ -349,9 +351,16 @@ class ForecastPipeline:
             key = (str(entry.get("market_id") or ""), str(entry.get("venue") or ""))
             grouped[key] = entry
 
+        # Supabase is the durable source of truth and survives Railway restarts.
+        for entry in await self.proof_outbox.list_due_markets():
+            key = (str(entry.get("market_id") or ""), str(entry.get("venue") or ""))
+            if key[0]:
+                grouped[key] = entry
+
         checked = 0
         resolved_count = 0
         unresolved = []
+        queued_onchain = 0
         for (market_id, venue), entry in grouped.items():
             checked += 1
             outcome = None
@@ -392,22 +401,34 @@ class ForecastPipeline:
                 resolution_source=source_url or "official venue data",
                 resolved_at=now.isoformat(),
             )
-            if resolved:
-                await self.queue_onchain_resolution(
-                    market_id, outcome, source_url or "official venue data", now.isoformat()
-                )
+            await self.queue_onchain_resolution(
+                market_id,
+                outcome,
+                source_url or "official venue data",
+                now.isoformat(),
+                venue=venue,
+            )
+            queued_onchain += 1
             resolved_count += len(resolved)
 
         return {
             "checked_markets": checked,
             "resolved_forecasts": resolved_count,
+            "queued_onchain_markets": queued_onchain,
             "still_unresolved": unresolved,
         }
 
     async def queue_onchain_resolution(
-        self, market_id: str, outcome: int, source: str, resolved_at: str
+        self,
+        market_id: str,
+        outcome: int,
+        source: str,
+        resolved_at: str,
+        venue: str | None = None,
     ) -> None:
         if not self.proof_outbox.configured:
             return
         resolution_hash = build_resolution_hash(market_id, outcome, source, resolved_at)
-        await self.proof_outbox.queue_resolution(market_id, outcome, resolution_hash)
+        await self.proof_outbox.queue_resolution(
+            market_id, outcome, resolution_hash, venue=venue
+        )
