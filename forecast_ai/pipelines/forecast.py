@@ -25,6 +25,56 @@ from ..proof.outbox import SupabaseProofOutbox
 
 logger = logging.getLogger(__name__)
 
+
+def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List[Evidence]:
+    """Give each Swarm node only the evidence relevant to its specialty."""
+    normalized_agent = agent_name.lower().strip()
+    routed: List[Evidence] = []
+
+    source_patterns = {
+        "news": ("news", "rss", "facts_ai", "factsai", "tavily"),
+        "social": ("twitter", "social"),
+        "reddit": ("reddit",),
+        "research": ("facts_ai", "factsai", "arxiv", "research", "tavily"),
+        "macro": ("macro", "cme", "fred", "news", "rss", "facts_ai", "factsai", "tavily"),
+        "onchain": ("blockchain", "onchain", "polygonscan"),
+        "market": ("kalshi", "polymarket", "market", "robinhood"),
+    }
+    falcon_types = {
+        "social": {"social_intelligence", "social_status"},
+        "market": {
+            "market_intelligence",
+            "smart_money",
+            "smart_money_status",
+            "status",
+        },
+    }
+
+    for item in evidence:
+        metadata = item.metadata or {}
+        provider = str(metadata.get("provider") or "").lower().strip()
+        source_type = str(metadata.get("source_type") or "").lower().strip()
+        source_name = item.source_name.lower()
+
+        if provider == "falcon" or source_name.startswith("falcon"):
+            if source_type in falcon_types.get(normalized_agent, set()):
+                routed.append(item)
+            continue
+
+        patterns = source_patterns.get(normalized_agent, (normalized_agent,))
+        if any(pattern in source_name for pattern in patterns):
+            routed.append(item)
+
+    if routed:
+        return routed
+
+    # A selected market is safe shared context when a specialist has no
+    # dedicated source. Do not fall back to every partner payload.
+    return [
+        item for item in evidence
+        if item.source_name.lower() in {"polymarket", "kalshi"}
+    ]
+
 class ForecastPipeline:
     def __init__(self, config: ForecastConfig, memory_store: Optional[MemoryStore] = None):
         self.config = config
@@ -182,21 +232,8 @@ class ForecastPipeline:
         active_agents = list(self.agents.values())
         predictions = []
 
-        agent_source_map = {
-            "news": ["news", "rss", "facts_ai", "factsai", "tavily"],
-            "social": ["twitter", "social"],
-            "reddit": ["reddit"],
-            "research": ["facts_ai", "factsai", "arxiv", "research", "tavily"],
-            "macro": ["macro", "cme", "fred", "news", "rss", "facts_ai", "factsai", "tavily"],
-            "onchain": ["blockchain", "onchain", "polygonscan"],
-            "market": ["kalshi", "polymarket", "market", "robinhood", "falcon"]
-        }
-
         async def _query_agent(agent):
-            allowed = agent_source_map.get(agent.name.lower(), [agent.name.lower()])
-            agent_evidence = [e for e in evidence if any(s in e.source_name.lower() for s in allowed)]
-            if not agent_evidence and agent.name.lower() not in ("social", "reddit"):
-                agent_evidence = evidence
+            agent_evidence = _route_evidence_for_agent(agent.name, evidence)
             try:
                 return await agent.forecast(question, agent_evidence, is_public_feed=is_public_feed, model_override=model_override, facts_key=facts_key)
             except ProviderError as pe:

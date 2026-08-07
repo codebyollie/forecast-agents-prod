@@ -165,7 +165,13 @@ class ForecastAgent(ABC):
                 if provider_status in ("", "active") and source_type != "status":
                     research_providers.add("Falcon")
                     if item.content:
-                        provider_insights["Falcon"] = str(item.content).strip()[:1500]
+                        insight_labels = {
+                            "social_intelligence": "Falcon Social Pulse",
+                            "market_intelligence": "Falcon Market Intelligence",
+                            "smart_money": "Falcon Smart Money",
+                        }
+                        insight_label = insight_labels.get(source_type, "Falcon Intelligence")
+                        provider_insights[insight_label] = str(item.content).strip()[:1500]
             if item.url and source_type != "summary":
                 add_citation(
                     item.title or item.source_name,

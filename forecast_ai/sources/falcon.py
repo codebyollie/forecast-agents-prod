@@ -231,8 +231,9 @@ class FalconSource(BaseSource):
             if not term.isdigit() and term != "prediction"
         }
         text_fields = ("content", "text", "title", "body", "tweet")
-        searchable_records: List[tuple[Dict[str, Any], str]] = []
-        relevant_records: List[tuple[Dict[str, Any], str]] = []
+        searchable_segments: List[str] = []
+        relevant_segments: List[str] = []
+        required_matches = 2 if len(query_terms) >= 2 else 1
 
         for record in records:
             text = " ".join(
@@ -242,14 +243,20 @@ class FalconSource(BaseSource):
             ).strip()
             if not text:
                 continue
-            searchable_records.append((record, text))
-            text_tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
-            if query_terms.intersection(text_tokens):
-                relevant_records.append((record, text))
+            segments = [
+                segment.strip()
+                for segment in re.split(r"(?:\n+|\s+\|\s+)", text)
+                if segment.strip()
+            ] or [text]
+            for segment in segments:
+                searchable_segments.append(segment)
+                text_tokens = set(re.findall(r"[a-z0-9]+", segment.lower()))
+                if len(query_terms.intersection(text_tokens)) >= required_matches:
+                    relevant_segments.append(segment)
 
         # Falcon occasionally returns a valid but unrelated trending narrative.
         # Never send that content into the forecasting agents.
-        if searchable_records and not relevant_records:
+        if searchable_segments and not relevant_segments:
             raise FalconError(422, "Falcon Social Pulse returned no topic-relevant records.")
 
         signals = cls._signal_snapshot(payload)
@@ -267,15 +274,28 @@ class FalconSource(BaseSource):
                 metrics.append(f"{label}: {value}")
 
         excerpts = []
-        for _, text in relevant_records[:3]:
-            compact = re.sub(r"\s+", " ", text).strip()
-            excerpts.append(compact[:320])
+        for text in relevant_segments[:3]:
+            compact = re.sub(r"https?://\S+", "", text)
+            compact = re.sub(r"\s+", " ", compact).strip(" -|")
+            if compact:
+                excerpts.append(compact[:260])
 
-        summary = f'Falcon Social Pulse for "{query}": '
-        summary += "; ".join(metrics) if metrics else "topic-relevant social data returned"
+        acceleration = signals.get("acceleration")
+        try:
+            acceleration_value = float(acceleration)
+            trend = "rising" if acceleration_value > 1.05 else "cooling" if acceleration_value < 0.95 else "stable"
+        except (TypeError, ValueError):
+            trend = "available"
+
+        lines = [
+            f"Topic: {query}",
+            f"Narrative: {trend}",
+            "Signal: " + (" | ".join(metrics) if metrics else "topic-relevant social data returned"),
+        ]
         if excerpts:
-            summary += ". Relevant posts: " + " | ".join(excerpts)
-        return summary[:4000]
+            lines.append("Relevant discussion:")
+            lines.extend(f"- {excerpt}" for excerpt in excerpts)
+        return "\n".join(lines)[:4000]
 
     async def _smart_money(self, market_id: str) -> Optional[Evidence]:
         if self._leaderboard_payload is None or time.time() - self._leaderboard_cached_at > 900:

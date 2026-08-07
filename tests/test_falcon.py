@@ -176,6 +176,35 @@ async def test_social_pulse_rejects_unrelated_trending_content():
 
 
 @pytest.mark.asyncio
+async def test_social_pulse_does_not_merge_partial_matches_from_unrelated_posts():
+    source = FalconSource(
+        api_token="falcon-test-token",
+        api_url="https://narrative.agent.heisenberg.so/api/v2/semantic/retrieve/parameterized",
+        social_enabled=True,
+    )
+    source._retrieve = AsyncMock(side_effect=[
+        {"data": {"results": [{"liquidity": 1000}]}},
+        {"results": [{
+            "tweet_count": 293,
+            "content": (
+                "Crypto exchange offices allegedly moved stolen funds to Ukraine. | "
+                "US voters face a midterm election with divided parties."
+            ),
+        }]},
+    ])
+
+    evidence = await source.fetch_market_intelligence(
+        "ukraine-election-2026",
+        "Polymarket",
+        condition_id="0xcondition",
+        social_query="Ukraine election called by December 31, 2026?",
+    )
+
+    assert not any(item.source_name == "falcon_social_pulse" for item in evidence)
+    assert any(item.source_name == "falcon_social_status" for item in evidence)
+
+
+@pytest.mark.asyncio
 async def test_social_pulse_uses_market_title_and_returns_readable_summary():
     source = FalconSource(
         api_token="falcon-test-token",
