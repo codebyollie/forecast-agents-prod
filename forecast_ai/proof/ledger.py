@@ -25,6 +25,19 @@ def _digest(value: str) -> str:
     return f"0x{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
 
 
+def build_resolution_hash(market_id: str, outcome: int, source: str, resolved_at: str) -> str:
+    if outcome not in (0, 1):
+        raise ValueError("Outcome must be 0 or 1.")
+    payload = {
+        "schema": "forecast-ai-resolution-v1",
+        "market_id": market_id,
+        "outcome": outcome,
+        "source": source,
+        "resolved_at": resolved_at,
+    }
+    return _digest(_canonical_json(payload))
+
+
 def _unix_timestamp(value: str | None) -> int | None:
     if not value:
         return None

@@ -112,10 +112,23 @@ class ConfigStore:
             config.robinhood_chain.stock_token_api_url = os.environ["ROBINHOOD_STOCK_TOKEN_API_URL"]
         if os.environ.get("ROBINHOOD_CHAIN_RPC_URL"):
             config.robinhood_chain.rpc_url = os.environ["ROBINHOOD_CHAIN_RPC_URL"]
+        if os.environ.get("ROBINHOOD_CHAIN_ID"):
+            config.robinhood_chain.chain_id = int(os.environ["ROBINHOOD_CHAIN_ID"])
         if os.environ.get("FORECAST_REGISTRY_ADDRESS"):
             config.robinhood_chain.registry_address = os.environ["FORECAST_REGISTRY_ADDRESS"]
         if os.environ.get("FORECAST_PROOF_ENABLED"):
             config.robinhood_chain.proof_enabled = os.environ["FORECAST_PROOF_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("FORECAST_PUBLISHER_PRIVATE_KEY"):
+            config.robinhood_chain.publisher_private_key = os.environ["FORECAST_PUBLISHER_PRIVATE_KEY"]
+        if os.environ.get("SUPABASE_URL"):
+            config.robinhood_chain.supabase_url = os.environ["SUPABASE_URL"]
+        if os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+            config.robinhood_chain.supabase_service_role_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+        if os.environ.get("FORECAST_PROOF_PUBLISH_INTERVAL_SECONDS"):
+            config.robinhood_chain.publish_interval_seconds = max(
+                5,
+                int(os.environ["FORECAST_PROOF_PUBLISH_INTERVAL_SECONDS"]),
+            )
 
         # Server overrides
         if os.environ.get("SERVER_HOST"):
@@ -206,6 +219,7 @@ class ConfigStore:
             config.robinhood_chain.stock_tokens_enabled = bool(rh_chain.get("stock_tokens_enabled", config.robinhood_chain.stock_tokens_enabled))
             config.robinhood_chain.stock_token_api_url = rh_chain.get("stock_token_api_url", config.robinhood_chain.stock_token_api_url)
             config.robinhood_chain.rpc_url = rh_chain.get("rpc_url", config.robinhood_chain.rpc_url)
+            config.robinhood_chain.chain_id = int(rh_chain.get("chain_id", config.robinhood_chain.chain_id))
             config.robinhood_chain.registry_address = rh_chain.get("registry_address", config.robinhood_chain.registry_address)
             config.robinhood_chain.proof_enabled = bool(rh_chain.get("proof_enabled", config.robinhood_chain.proof_enabled))
 
@@ -289,8 +303,10 @@ class ConfigStore:
                 "stock_tokens_enabled": config.robinhood_chain.stock_tokens_enabled,
                 "stock_token_api_url": config.robinhood_chain.stock_token_api_url,
                 "rpc_url": config.robinhood_chain.rpc_url,
+                "chain_id": config.robinhood_chain.chain_id,
                 "registry_address": config.robinhood_chain.registry_address,
                 "proof_enabled": config.robinhood_chain.proof_enabled,
+                "publish_interval_seconds": config.robinhood_chain.publish_interval_seconds,
             },
             "agents": {
                 name: {

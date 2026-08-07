@@ -1,0 +1,61 @@
+name: ForecastRegistry
+
+on:
+  push:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/forecast-registry.yml"
+  workflow_dispatch:
+    inputs:
+      deploy_network:
+        description: "Compile only or deploy ForecastRegistry"
+        required: true
+        default: "compile-only"
+        type: choice
+        options:
+          - compile-only
+          - robinhood-testnet
+          - robinhood-mainnet
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+      - run: npm ci
+      - run: npm run compile
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_network != 'compile-only'
+    needs: compile
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.deploy_network }}
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+      - run: npm ci
+      - name: Deploy to Robinhood Chain testnet
+        if: inputs.deploy_network == 'robinhood-testnet'
+        run: npm run deploy:testnet
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}
+      - name: Deploy to Robinhood Chain mainnet
+        if: inputs.deploy_network == 'robinhood-mainnet'
+        run: npm run deploy:mainnet
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}

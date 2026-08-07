@@ -13,6 +13,7 @@ from . import routes
 from ..pipelines.forecast import ForecastPipeline
 from ..config import ForecastConfig
 from ..config_store import ConfigStore
+from ..proof.publisher import ProofPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class ApiServer:
         self.pipeline = pipeline
         self.app = FastAPI(title="Forecast AI API", version="0.2.0")
         self._server_task: Optional[asyncio.Task] = None
+        self.proof_publisher = ProofPublisher(config.robinhood_chain)
         self._init_app()
 
     def _init_app(self):
@@ -40,7 +42,16 @@ class ApiServer:
 
         # Set pipeline reference in routes
         routes._pipeline = self.pipeline
+        routes._proof_publisher = self.proof_publisher
         self.app.include_router(routes.router)
+
+        @self.app.on_event("startup")
+        async def start_proof_publisher():
+            await self.proof_publisher.start()
+
+        @self.app.on_event("shutdown")
+        async def stop_proof_publisher():
+            await self.proof_publisher.stop()
 
     async def start(self):
         """

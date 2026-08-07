@@ -25,6 +25,7 @@ ws = [
 # Onchain integration
 onchain = [
     "eth-account",
+    "web3>=7.0,<8",
 ]
 # Development and tests
 dev = [

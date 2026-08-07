@@ -14,3 +14,7 @@ memory_data/skills
 memory_data/*.json
 !memory_data/public_feed.json
 *prompt*.md
+contracts/node_modules/
+contracts/cache/
+contracts/artifacts/
+.pytest-*/

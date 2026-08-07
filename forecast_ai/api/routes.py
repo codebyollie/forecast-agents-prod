@@ -11,11 +11,13 @@ from typing import List, Dict, Any, Optional
 from ..pipelines.forecast import ForecastPipeline
 from ..polymarket.gamma import GammaClient
 from ..services.market_search import MarketSearchService
+from ..proof.publisher import ProofPublisher, get_proof_publisher_status
 
 router = APIRouter()
 
 # Global reference to pipeline, will be set during server init
 _pipeline: Optional[ForecastPipeline] = None
+_proof_publisher: Optional[ProofPublisher] = None
 
 _IP_RATE_LIMITS: Dict[str, List[float]] = {}
 MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_RATE_LIMIT_PER_HOUR", "50")))
@@ -290,6 +292,20 @@ async def proof_track_record(request: Request, pipeline: ForecastPipeline = Depe
     require_server_api_key(request)
     return pipeline.memory_store.get_track_record()
 
+@router.get("/proof/publisher-status")
+async def proof_publisher_status(request: Request):
+    require_server_api_key(request)
+    status = get_proof_publisher_status()
+    status["configured"] = bool(_proof_publisher and _proof_publisher.configured)
+    return status
+
+@router.post("/proof/publish-pending")
+async def publish_pending_proofs(request: Request):
+    require_server_api_key(request)
+    if _proof_publisher is None or not _proof_publisher.configured:
+        raise HTTPException(status_code=503, detail="Proof publisher is not fully configured.")
+    return await _proof_publisher.publish_pending()
+
 @router.post("/proof/resolve")
 async def resolve_forecasts(
     request: Request,
@@ -305,6 +321,10 @@ async def resolve_forecasts(
         resolution_source=req.resolution_source,
         resolved_at=req.resolved_at,
     )
+    if resolved:
+        await pipeline.queue_onchain_resolution(
+            req.market_id, req.outcome, req.resolution_source, req.resolved_at
+        )
     return {"market_id": req.market_id, "resolved_count": len(resolved), "forecasts": resolved}
 
 @router.post("/proof/resolve-due")

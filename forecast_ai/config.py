@@ -40,6 +40,10 @@ class RobinhoodChainConfig:
     chain_id: int = 4663
     registry_address: str = ""
     proof_enabled: bool = False
+    publisher_private_key: str = ""
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    publish_interval_seconds: int = 15
 
 @dataclass
 class AgentSettings:

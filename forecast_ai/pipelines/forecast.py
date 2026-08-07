@@ -20,7 +20,8 @@ from ..services.opportunity_radar import build_opportunity_radar
 from ..services.market_search import MarketSearchService
 from ..services.outcome_graph import OutcomeGraphService
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
-from ..proof.ledger import build_forecast_envelope
+from ..proof.ledger import build_forecast_envelope, build_resolution_hash
+from ..proof.outbox import SupabaseProofOutbox
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ class ForecastPipeline:
         self.source_manager = SourceManager(config, provider_manager=self.provider_manager)
         self.consensus_engine = ConsensusEngine(config)
         self.memory_store = memory_store or MemoryStore(config)
+        self.proof_outbox = SupabaseProofOutbox(
+            config.robinhood_chain.supabase_url,
+            config.robinhood_chain.supabase_service_role_key,
+        )
         market_search = MarketSearchService(
             kalshi_base_url=config.kalshi.api_base_url,
             gamma_api_url=config.polymarket.gamma_api_url,
@@ -350,6 +355,10 @@ class ForecastPipeline:
                 resolution_source=source_url or "official venue data",
                 resolved_at=now.isoformat(),
             )
+            if resolved:
+                await self.queue_onchain_resolution(
+                    market_id, outcome, source_url or "official venue data", now.isoformat()
+                )
             resolved_count += len(resolved)
 
         return {
@@ -357,3 +366,11 @@ class ForecastPipeline:
             "resolved_forecasts": resolved_count,
             "still_unresolved": unresolved,
         }
+
+    async def queue_onchain_resolution(
+        self, market_id: str, outcome: int, source: str, resolved_at: str
+    ) -> None:
+        if not self.proof_outbox.configured:
+            return
+        resolution_hash = build_resolution_hash(market_id, outcome, source, resolved_at)
+        await self.proof_outbox.queue_resolution(market_id, outcome, resolution_hash)

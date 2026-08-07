@@ -7,5 +7,6 @@ tiktoken
 pydantic>=2.0
 websockets
 eth-account
+web3>=7.0,<8
 pytest
 pytest-asyncio

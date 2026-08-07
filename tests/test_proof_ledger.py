@@ -5,7 +5,7 @@ from forecast_ai.memory.store import MemoryStore
 from forecast_ai.models.confidence import ConfidenceScore
 from forecast_ai.models.forecast import ForecastResult, ReasoningTrace
 from forecast_ai.models.prediction import Prediction
-from forecast_ai.proof.ledger import build_forecast_envelope, calculate_brier_score
+from forecast_ai.proof.ledger import build_forecast_envelope, build_resolution_hash, calculate_brier_score
 
 
 def _forecast():
@@ -27,6 +27,15 @@ def _forecast():
 def test_brier_score_uses_probability_not_binary_accuracy():
     assert calculate_brier_score(0.8, 1) == 0.04
     assert calculate_brier_score(0.8, 0) == 0.64
+
+
+def test_resolution_hash_is_deterministic_and_outcome_specific():
+    first = build_resolution_hash("market-1", 1, "official", "2030-01-02T00:00:00Z")
+    second = build_resolution_hash("market-1", 1, "official", "2030-01-02T00:00:00Z")
+    no_outcome = build_resolution_hash("market-1", 0, "official", "2030-01-02T00:00:00Z")
+    assert first == second
+    assert first.startswith("0x") and len(first) == 66
+    assert first != no_outcome
 
 
 def test_envelope_hash_is_deterministic():

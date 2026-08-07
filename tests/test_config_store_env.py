@@ -12,6 +12,7 @@ def test_config_store_env_overrides(tmp_path, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "env_gemini_test_key_456")
     monkeypatch.setenv("KALSHI_API_KEY", "env_kalshi_key_789")
     monkeypatch.setenv("SERVER_PORT", "30005")
+    monkeypatch.setenv("ROBINHOOD_CHAIN_ID", "46630")
 
     cfg = cs.load_config()
 
@@ -19,6 +20,7 @@ def test_config_store_env_overrides(tmp_path, monkeypatch):
     assert cfg.providers["gemini"].api_key == "env_gemini_test_key_456"
     assert cfg.kalshi.api_key == "env_kalshi_key_789"
     assert cfg.server.port == 30005
+    assert cfg.robinhood_chain.chain_id == 46630
 
 def test_default_and_fallback_provider_defaults():
     cfg = ForecastConfig()

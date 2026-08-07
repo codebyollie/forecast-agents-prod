@@ -107,6 +107,13 @@ contract ForecastRegistry {
         _registerAgent(agentId, agentOwner);
     }
 
+    function registerAgentBatchFor(bytes32[] calldata agentIds, address agentOwner) external onlyOwner {
+        if (agentIds.length == 0 || agentIds.length > 100) revert InvalidInput();
+        for (uint256 i = 0; i < agentIds.length; ++i) {
+            _registerAgent(agentIds[i], agentOwner);
+        }
+    }
+
     function _registerAgent(bytes32 agentId, address agentOwner) internal {
         if (agentId == bytes32(0) || agentOwner == address(0)) revert InvalidInput();
         if (agentOwners[agentId] != address(0)) revert AlreadyExists();
