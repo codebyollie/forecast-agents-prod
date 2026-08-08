@@ -65,6 +65,21 @@ class ForecastAgent(ABC):
         provider_insights: Dict[str, str] = {}
         provider_statuses: Dict[str, str] = {}
 
+        def merge_provider_status(provider: str, candidate: str) -> None:
+            """Keep a successful provider status when an optional layer fails."""
+            normalized = (candidate or "active").strip().lower()
+            priorities = {
+                "unavailable": 0,
+                "unauthorized": 0,
+                "empty": 1,
+                "requested": 2,
+                "fallback": 3,
+                "active": 4,
+            }
+            current = provider_statuses.get(provider)
+            if current is None or priorities.get(normalized, 2) > priorities.get(current.lower(), 2):
+                provider_statuses[provider] = normalized
+
         def infer_provider(item: Evidence) -> str:
             metadata_provider = str((item.metadata or {}).get("provider") or "").strip()
             if metadata_provider:
@@ -161,7 +176,7 @@ class ForecastAgent(ABC):
                 elif provider_status == "unavailable":
                     facts_ai_error = "FactsAI unavailable; standard research fallback was used."
             if inferred_provider == "Falcon":
-                provider_statuses["Falcon"] = provider_status or "active"
+                merge_provider_status("Falcon", provider_status or "active")
                 if provider_status in ("", "active") and source_type != "status":
                     research_providers.add("Falcon")
                     if item.content:
