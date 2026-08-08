@@ -54,6 +54,7 @@ jobs:
         run: npm run deploy:testnet
         env:
           DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}
+          RH_TESTNET_RPC_URL: ${{ secrets.RH_TESTNET_RPC_URL }}
           PUBLISHER_ADDRESS: ${{ vars.FORECAST_PUBLISHER_ADDRESS }}
           RESOLVER_ADDRESS: ${{ vars.FORECAST_RESOLVER_ADDRESS }}
           OWNER_ADDRESS: ${{ vars.FORECAST_OWNER_ADDRESS }}
@@ -62,6 +63,7 @@ jobs:
         run: npm run deploy:mainnet
         env:
           DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}
+          RH_MAINNET_RPC_URL: ${{ secrets.RH_MAINNET_RPC_URL }}
           PUBLISHER_ADDRESS: ${{ vars.FORECAST_PUBLISHER_ADDRESS }}
           RESOLVER_ADDRESS: ${{ vars.FORECAST_RESOLVER_ADDRESS }}
           OWNER_ADDRESS: ${{ vars.FORECAST_OWNER_ADDRESS }}
