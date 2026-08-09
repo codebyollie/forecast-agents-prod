@@ -119,7 +119,10 @@ async def integrations_status(
     bravado_runtime = get_bravado_runtime_status()
     facts_configured = bool(getattr(pipeline.config.facts_ai, "api_key", ""))
     falcon_configured = bool(getattr(pipeline.config.falcon, "api_token", ""))
-    bravado_configured = bool(getattr(pipeline.config.bravado, "api_token", ""))
+    bravado_configured = bool(
+        getattr(pipeline.config.bravado, "enabled", False)
+        and getattr(pipeline.config.bravado, "api_url", "")
+    )
 
     return {
         "facts_ai": {
@@ -137,6 +140,7 @@ async def integrations_status(
         "bravado": {
             "enabled": bool(getattr(pipeline.config.bravado, "enabled", False)),
             "configured": bravado_configured,
+            "authenticated": bool(getattr(pipeline.config.bravado, "api_token", "")),
             "leaderboard_window": getattr(pipeline.config.bravado, "leaderboard_window", "30d"),
             "scan_limit": getattr(pipeline.config.bravado, "scan_limit", 12),
             **bravado_runtime,

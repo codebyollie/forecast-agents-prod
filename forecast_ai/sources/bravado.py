@@ -64,17 +64,15 @@ class BravadoSource(BaseSource):
         self._positions_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if not self.api_token:
-            raise BravadoError(401, "Bravado API token is not configured.")
         _record_status("requested")
+        headers = {"Accept": "application/json"}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.get(
                     f"{self.api_url}/{path.lstrip('/')}",
-                    headers={
-                        "Authorization": f"Bearer {self.api_token}",
-                        "Accept": "application/json",
-                    },
+                    headers=headers,
                     params=params or {},
                 )
         except Exception as exc:
@@ -136,7 +134,9 @@ class BravadoSource(BaseSource):
     @staticmethod
     def _wallet(row: Dict[str, Any]) -> str:
         value = str(row.get("trader") or row.get("address") or "").strip().lower()
-        return value if value.startswith("0x") else ""
+        if re.fullmatch(r"[0-9a-f]{40}", value):
+            return f"0x{value}"
+        return value if re.fullmatch(r"0x[0-9a-f]{40}", value) else ""
 
     @staticmethod
     def _number(value: Any) -> Optional[float]:

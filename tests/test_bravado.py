@@ -19,7 +19,7 @@ async def test_bravado_matches_ranked_non_bot_positions(monkeypatch):
             return {
                 "results": [
                     {
-                        "trader": "0x1111111111111111111111111111111111111111",
+                        "trader": "1111111111111111111111111111111111111111",
                         "rank": 1,
                         "username": "alpha",
                         "win_rate": "0.72",
@@ -57,6 +57,7 @@ async def test_bravado_matches_ranked_non_bot_positions(monkeypatch):
     assert signals["smart_money_direction"] == "YES"
     assert signals["smart_money_position_value_usdc"] == 12500.5
     assert signals["smart_money_average_win_rate"] == 72.0
+    assert signals["smart_money_wallets"] == ["0x1111111111111111111111111111111111111111"]
     assert calls[0][0] == "leaderboard"
     assert calls[0][1]["exclude_bots"] == "true"
     assert len([path for path, _ in calls if "/positions/active" in path]) == 1

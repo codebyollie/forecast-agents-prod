@@ -49,7 +49,7 @@ class SourceManager:
                 smart_money_enabled=config.falcon.smart_money_enabled,
             )
         self.bravado_source = None
-        if getattr(config.bravado, "enabled", False) and getattr(config.bravado, "api_token", ""):
+        if getattr(config.bravado, "enabled", False):
             self.bravado_source = BravadoSource(
                 api_token=config.bravado.api_token,
                 api_url=config.bravado.api_url,
