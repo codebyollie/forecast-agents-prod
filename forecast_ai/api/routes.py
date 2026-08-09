@@ -112,11 +112,14 @@ async def integrations_status(
     enforce_request_access(request)
     from ..sources.facts_ai import get_facts_ai_runtime_status
     from ..sources.falcon import get_falcon_runtime_status
+    from ..sources.bravado import get_bravado_runtime_status
 
     facts_runtime = get_facts_ai_runtime_status()
     falcon_runtime = get_falcon_runtime_status()
+    bravado_runtime = get_bravado_runtime_status()
     facts_configured = bool(getattr(pipeline.config.facts_ai, "api_key", ""))
     falcon_configured = bool(getattr(pipeline.config.falcon, "api_token", ""))
+    bravado_configured = bool(getattr(pipeline.config.bravado, "api_token", ""))
 
     return {
         "facts_ai": {
@@ -130,6 +133,13 @@ async def integrations_status(
             "social_enabled": bool(getattr(pipeline.config.falcon, "social_enabled", False)),
             "smart_money_enabled": bool(getattr(pipeline.config.falcon, "smart_money_enabled", False)),
             **falcon_runtime,
+        },
+        "bravado": {
+            "enabled": bool(getattr(pipeline.config.bravado, "enabled", False)),
+            "configured": bravado_configured,
+            "leaderboard_window": getattr(pipeline.config.bravado, "leaderboard_window", "30d"),
+            "scan_limit": getattr(pipeline.config.bravado, "scan_limit", 12),
+            **bravado_runtime,
         },
         "tavily": {
             "enabled": bool(getattr(pipeline.config.tavily, "enabled", False)),

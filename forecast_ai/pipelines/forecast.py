@@ -49,6 +49,9 @@ def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List
             "status",
         },
     }
+    bravado_types = {
+        "market": {"trader_intelligence", "trader_status"},
+    }
 
     for item in evidence:
         metadata = item.metadata or {}
@@ -58,6 +61,11 @@ def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List
 
         if provider == "falcon" or source_name.startswith("falcon"):
             if source_type in falcon_types.get(normalized_agent, set()):
+                routed.append(item)
+            continue
+
+        if provider == "bravado" or source_name.startswith("bravado"):
+            if source_type in bravado_types.get(normalized_agent, set()):
                 routed.append(item)
             continue
 

@@ -8,6 +8,7 @@ from .blockchain import BlockchainSource
 from .kalshi import KalshiSource
 from .tavily_search import TavilySearchSource
 from .falcon import FalconSource
+from .bravado import BravadoSource
 from ..models.evidence import Evidence
 from ..config import ForecastConfig
 from .cache import SourceCache
@@ -46,6 +47,16 @@ class SourceManager:
                 falcon_score_agent_id=config.falcon.falcon_score_agent_id,
                 polymarket_trades_agent_id=config.falcon.polymarket_trades_agent_id,
                 smart_money_enabled=config.falcon.smart_money_enabled,
+            )
+        self.bravado_source = None
+        if getattr(config.bravado, "enabled", False) and getattr(config.bravado, "api_token", ""):
+            self.bravado_source = BravadoSource(
+                api_token=config.bravado.api_token,
+                api_url=config.bravado.api_url,
+                timeout_seconds=config.bravado.timeout_seconds,
+                leaderboard_window=config.bravado.leaderboard_window,
+                scan_limit=config.bravado.scan_limit,
+                min_trades=config.bravado.min_trades,
             )
         
         news_key = getattr(config.sources, "news_api_key", "") or os.getenv("NEWS_API_KEY", "")
@@ -286,17 +297,55 @@ class SourceManager:
                     },
                 )]
 
+        async def with_bravado(base_evidence: List[Evidence]) -> List[Evidence]:
+            if not base_evidence or self.bravado_source is None:
+                return base_evidence
+            market_metadata = base_evidence[0].metadata or {}
+            if str(market_metadata.get("venue") or venue or "").lower() != "polymarket":
+                return base_evidence
+            question = (base_evidence[0].title or market_id).strip()
+            condition_id = str(market_metadata.get("condition_id") or "").strip() or None
+            cache_key = f"{market_id}:{condition_id or ''}:{question.lower()[:120]}"
+            cached = self.cache.get("bravado", cache_key, ttl_seconds=900)
+            if cached is not None:
+                return base_evidence + cached
+            try:
+                partner_evidence = await self.bravado_source.fetch_market_trader_intelligence(
+                    market_id=market_id,
+                    question=question,
+                    condition_id=condition_id,
+                )
+                if partner_evidence:
+                    self.cache.set("bravado", cache_key, partner_evidence)
+                return base_evidence + partner_evidence
+            except Exception as exc:
+                logger.warning("[SourceManager] Bravado trader intelligence unavailable: %s", exc)
+                return base_evidence + [Evidence(
+                    source_name="bravado_status",
+                    content="Bravado trader intelligence was unavailable for this analysis.",
+                    relevance_score=0.0,
+                    metadata={
+                        "provider": "Bravado",
+                        "source_type": "trader_status",
+                        "status": "unavailable",
+                        "partner": True,
+                    },
+                )]
+
+        async def with_partner_intelligence(base_evidence: List[Evidence]) -> List[Evidence]:
+            return await with_bravado(await with_falcon(base_evidence))
+
         if "polymarket" in venue_name:
-            return await with_falcon(await fetch_polymarket())
+            return await with_partner_intelligence(await fetch_polymarket())
         if "kalshi" in venue_name or "robinhood" in venue_name:
-            return await with_falcon(await fetch_kalshi())
+            return await with_partner_intelligence(await fetch_kalshi())
 
         # Custom/legacy callers may omit the venue. Resolve deterministically by
         # trying Polymarket slug resolution first, then Kalshi ticker resolution.
         evidence = await fetch_polymarket()
         if evidence:
-            return await with_falcon(evidence)
-        return await with_falcon(await fetch_kalshi())
+            return await with_partner_intelligence(evidence)
+        return await with_partner_intelligence(await fetch_kalshi())
 
     async def synthesize_evidence(self, query: str, evidence: List[Evidence]) -> List[Evidence]:
         """
@@ -343,5 +392,6 @@ __all__ = [
     "KalshiSource",
     "TavilySearchSource",
     "FalconSource",
+    "BravadoSource",
     "SourceManager",
 ]

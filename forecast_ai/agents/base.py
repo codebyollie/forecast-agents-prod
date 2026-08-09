@@ -89,6 +89,8 @@ class ForecastAgent(ABC):
                 return "FactsAI"
             if "tavily" in source_name:
                 return "Tavily"
+            if "bravado" in source_name:
+                return "Bravado"
             if "reddit" in source_name:
                 return "Reddit"
             if "twitter" in source_name or source_name == "x":
@@ -187,6 +189,12 @@ class ForecastAgent(ABC):
                         }
                         insight_label = insight_labels.get(source_type, "Falcon Intelligence")
                         provider_insights[insight_label] = str(item.content).strip()[:1500]
+            if inferred_provider == "Bravado":
+                merge_provider_status("Bravado", provider_status or "active")
+                if provider_status in ("", "active") and source_type != "trader_status":
+                    research_providers.add("Bravado")
+                    if item.content:
+                        provider_insights["Bravado Trader Intelligence"] = str(item.content).strip()[:1500]
             if item.url and source_type != "summary":
                 add_citation(
                     item.title or item.source_name,

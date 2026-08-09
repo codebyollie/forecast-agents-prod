@@ -76,3 +76,40 @@ def test_radar_surfaces_falcon_social_and_partner_provenance():
     assert radar["signals"]["social"]["acceleration"] == 1.6
     assert radar["risk"]["flags"] == ["wide_spread"]
     assert {item["provider"] for item in radar["providers"]} == {"FactsAI", "Falcon"}
+
+
+def test_radar_uses_bravado_positions_for_smart_money_and_divergence_risk():
+    evidence = [
+        Evidence(
+            source_name="polymarket",
+            content="selected market",
+            metadata={"venue": "Polymarket", "current_price": 0.45, "liquidity": 100_000},
+        ),
+        Evidence(
+            source_name="bravado_trader_intelligence",
+            content="ranked traders favor NO",
+            metadata={
+                "provider": "Bravado",
+                "partner": True,
+                "status": "active",
+                "source_type": "trader_intelligence",
+                "signals": {
+                    "smart_money_wallet_count": 3,
+                    "smart_money_direction": "NO",
+                    "smart_money_position_value_usdc": 25000,
+                    "smart_money_average_win_rate": 68.5,
+                    "leaderboard_wallets_scanned": 12,
+                },
+            },
+        ),
+    ]
+
+    radar = build_opportunity_radar(_result(probability=0.58), evidence, "Question", "Polymarket")
+
+    smart_money = radar["signals"]["smart_money"]
+    assert smart_money["status"] == "available"
+    assert smart_money["metrics"]["source"] == "Bravado"
+    assert smart_money["metrics"]["smart_money_direction"] == "NO"
+    assert smart_money["metrics"]["aligned_with_swarm"] is False
+    assert "smart_money_divergence" in radar["risk"]["flags"]
+    assert "Bravado" in {item["provider"] for item in radar["providers"]}

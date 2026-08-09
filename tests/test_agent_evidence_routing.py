@@ -43,6 +43,15 @@ def test_empty_specialist_route_falls_back_to_market_context_not_partner_payload
     assert _route_evidence_for_agent("onchain", [market, falcon_social]) == [market]
 
 
+def test_bravado_trader_intelligence_is_routed_only_to_market_agent():
+    market = _evidence("polymarket")
+    bravado = _evidence("bravado_trader_intelligence", "trader_intelligence", "Bravado")
+
+    assert _route_evidence_for_agent("market", [market, bravado]) == [market, bravado]
+    assert _route_evidence_for_agent("social", [market, bravado]) == [market]
+    assert _route_evidence_for_agent("onchain", [market, bravado]) == [market]
+
+
 @pytest.mark.asyncio
 async def test_falcon_active_status_wins_when_optional_layer_is_unavailable():
     agent = MarketAgent(name="market", provider=DummyProvider(), config=ForecastConfig())

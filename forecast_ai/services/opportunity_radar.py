@@ -92,6 +92,13 @@ def build_opportunity_radar(
         if isinstance(signals, dict):
             falcon_signals.update({key: value for key, value in signals.items() if value is not None})
 
+    bravado_items = [item for item in evidence if (item.metadata or {}).get("provider") == "Bravado"]
+    bravado_signals: Dict[str, Any] = {}
+    for item in bravado_items:
+        signals = (item.metadata or {}).get("signals")
+        if isinstance(signals, dict):
+            bravado_signals.update({key: value for key, value in signals.items() if value is not None})
+
     volume = _first_number(market_metadata, ("volume", "volume_total"))
     if volume is None:
         volume = _first_number(falcon_signals, ("volume", "volume_total"))
@@ -128,10 +135,22 @@ def build_opportunity_radar(
         liquidity_factor = min(1.0, max(0.0, liquidity / 100_000.0))
     elif volume is not None:
         liquidity_factor = min(1.0, max(0.0, volume / 250_000.0))
-    smart_money_confirmed = bool(falcon_signals.get("smart_money_wallet_count")) or any(
+    bravado_wallet_count = int(_number(bravado_signals.get("smart_money_wallet_count")) or 0)
+    bravado_direction = str(bravado_signals.get("smart_money_direction") or "").upper()
+    bravado_confirmed = bravado_wallet_count > 0 and bravado_direction in {"YES", "NO", "MIXED"}
+    falcon_confirmed = bool(falcon_signals.get("smart_money_wallet_count")) or any(
         key in falcon_signals for key in ("falcon_score", "win_rate", "roi", "total_pnl")
     )
-    smart_money_factor = 1.0 if smart_money_confirmed else 0.5
+    smart_money_confirmed = bravado_confirmed or falcon_confirmed
+    forecast_direction = "YES" if edge is not None and edge >= 0 else "NO" if edge is not None else None
+    smart_money_aligned = (
+        bravado_direction == forecast_direction
+        if bravado_direction in {"YES", "NO"} and forecast_direction
+        else None
+    )
+    if smart_money_aligned is False:
+        risk_flags.append("smart_money_divergence")
+    smart_money_factor = 1.0 if smart_money_aligned is True else 0.25 if smart_money_aligned is False else 0.5
     risk_penalty = min(0.45, len(risk_flags) * 0.15)
     score = round(max(0.0, min(1.0,
         edge_strength * 0.40
@@ -151,6 +170,11 @@ def build_opportunity_radar(
         (item.metadata or {}).get("source_type") == "smart_money_status"
         and (item.metadata or {}).get("status") == "unavailable"
         for item in falcon_items
+    )
+    bravado_failed = any(
+        (item.metadata or {}).get("source_type") == "trader_status"
+        and (item.metadata or {}).get("status") == "unavailable"
+        for item in bravado_items
     )
     social_acceleration = _number(falcon_signals.get("acceleration"))
     social_trend = falcon_signals.get("narrative_trend")
@@ -179,19 +203,31 @@ def build_opportunity_radar(
             "probability": ai_probability,
             "confidence": confidence,
             "edge": edge,
-            "direction": "YES" if edge is not None and edge >= 0 else "NO" if edge is not None else None,
+            "direction": forecast_direction,
         },
         "signals": {
             "smart_money": {
-                "status": "available" if smart_money_confirmed else "unavailable" if smart_money_failed else "not_available",
-                "metrics": {
+                "status": "available" if smart_money_confirmed else "unavailable" if (smart_money_failed or bravado_failed) else "not_available",
+                "metrics": ({
                     key: falcon_signals[key]
                     for key in (
                         "falcon_score", "win_rate", "roi", "total_pnl",
                         "smart_money_wallet_count", "smart_money_wallets",
                     )
                     if key in falcon_signals
-                },
+                } | {
+                    key: bravado_signals[key]
+                    for key in (
+                        "smart_money_wallet_count", "smart_money_direction",
+                        "smart_money_position_value_usdc", "smart_money_average_win_rate",
+                        "smart_money_wallets", "smart_money_traders",
+                        "leaderboard_window", "leaderboard_wallets_scanned",
+                    )
+                    if key in bravado_signals
+                } | {
+                    "source": "Bravado" if bravado_confirmed else "Falcon" if falcon_confirmed else None,
+                    "aligned_with_swarm": smart_money_aligned,
+                }),
             },
             "social": {
                 "status": "available" if social_present else "unavailable" if social_failed else "not_enabled",

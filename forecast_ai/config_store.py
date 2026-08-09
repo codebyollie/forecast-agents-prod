@@ -181,6 +181,20 @@ class ConfigStore:
         if os.environ.get("FALCON_SMART_MONEY_ENABLED"):
             config.falcon.smart_money_enabled = os.environ["FALCON_SMART_MONEY_ENABLED"].lower() in ("true", "1", "yes")
 
+        # Bravado partner trader-intelligence overrides
+        if os.environ.get("BRAVADO_API_TOKEN"):
+            config.bravado.api_token = os.environ["BRAVADO_API_TOKEN"]
+        if os.environ.get("BRAVADO_ENABLED"):
+            config.bravado.enabled = os.environ["BRAVADO_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("BRAVADO_API_URL"):
+            config.bravado.api_url = os.environ["BRAVADO_API_URL"].rstrip("/")
+        if os.environ.get("BRAVADO_LEADERBOARD_WINDOW"):
+            config.bravado.leaderboard_window = os.environ["BRAVADO_LEADERBOARD_WINDOW"]
+        if os.environ.get("BRAVADO_SCAN_LIMIT"):
+            config.bravado.scan_limit = max(1, min(30, int(os.environ["BRAVADO_SCAN_LIMIT"])))
+        if os.environ.get("BRAVADO_MIN_TRADES"):
+            config.bravado.min_trades = max(1, int(os.environ["BRAVADO_MIN_TRADES"]))
+
         # Tavily overrides
         if os.environ.get("TAVILY_API_KEY"):
             config.tavily.api_key = os.environ["TAVILY_API_KEY"]
@@ -267,6 +281,17 @@ class ConfigStore:
             config.server.port = int(srv.get("port", config.server.port))
             config.server.api_key = srv.get("api_key", config.server.api_key)
 
+        # Load Bravado partner trader intelligence
+        if "bravado" in raw:
+            b = raw["bravado"]
+            config.bravado.enabled = bool(b.get("enabled", config.bravado.enabled))
+            config.bravado.api_token = b.get("api_token", config.bravado.api_token)
+            config.bravado.api_url = b.get("api_url", config.bravado.api_url)
+            config.bravado.timeout_seconds = float(b.get("timeout_seconds", config.bravado.timeout_seconds))
+            config.bravado.leaderboard_window = b.get("leaderboard_window", config.bravado.leaderboard_window)
+            config.bravado.scan_limit = int(b.get("scan_limit", config.bravado.scan_limit))
+            config.bravado.min_trades = int(b.get("min_trades", config.bravado.min_trades))
+
         # Load Tavily
         if "tavily" in raw:
             t = raw["tavily"]
@@ -342,6 +367,15 @@ class ConfigStore:
                 "host": config.server.host,
                 "port": config.server.port,
                 "api_key": config.server.api_key,
+            },
+            "bravado": {
+                "enabled": config.bravado.enabled,
+                "api_token": config.bravado.api_token,
+                "api_url": config.bravado.api_url,
+                "timeout_seconds": config.bravado.timeout_seconds,
+                "leaderboard_window": config.bravado.leaderboard_window,
+                "scan_limit": config.bravado.scan_limit,
+                "min_trades": config.bravado.min_trades,
             },
             "tavily": {
                 "enabled": config.tavily.enabled,

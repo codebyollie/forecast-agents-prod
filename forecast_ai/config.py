@@ -100,6 +100,17 @@ class FalconConfig:
     smart_money_enabled: bool = False
 
 @dataclass
+class BravadoConfig:
+    """Bravado Polymarket trader analytics partner layer."""
+    enabled: bool = False
+    api_token: str = ""
+    api_url: str = "https://partner-api.bravadotrade.com/trader-analytics"
+    timeout_seconds: float = 20.0
+    leaderboard_window: str = "30d"
+    scan_limit: int = 12
+    min_trades: int = 20
+
+@dataclass
 class TavilyConfig:
     enabled: bool = False
     api_key: str = ""
@@ -125,6 +136,7 @@ class ForecastConfig:
     robinhood_chain: RobinhoodChainConfig = field(default_factory=RobinhoodChainConfig)
     facts_ai: FactsAIConfig = field(default_factory=FactsAIConfig)
     falcon: FalconConfig = field(default_factory=FalconConfig)
+    bravado: BravadoConfig = field(default_factory=BravadoConfig)
     tavily: TavilyConfig = field(default_factory=TavilyConfig)
     sources: SourcesConfig = field(default_factory=SourcesConfig)
     agents: Dict[str, AgentSettings] = field(default_factory=lambda: {
