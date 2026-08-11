@@ -99,6 +99,31 @@ def commitment_tuples(commitments: List[Dict[str, Any]]) -> List[tuple[Any, ...]
     return values
 
 
+def transaction_fee_fields(web3: Any) -> Dict[str, int]:
+    """Build fee fields with enough headroom for a changing EIP-1559 base fee."""
+    gas_price = max(1, int(web3.eth.gas_price))
+    try:
+        pending_block = web3.eth.get_block("pending")
+        base_fee_value = pending_block.get("baseFeePerGas")
+    except Exception:
+        base_fee_value = None
+
+    if base_fee_value is None:
+        return {"gasPrice": max(gas_price, int(gas_price * 1.25))}
+
+    base_fee = int(base_fee_value)
+    try:
+        priority_fee = int(web3.eth.max_priority_fee)
+    except Exception:
+        priority_fee = max(gas_price - base_fee, 1_000_000)
+    priority_fee = max(priority_fee, 1_000_000)
+
+    return {
+        "maxPriorityFeePerGas": priority_fee,
+        "maxFeePerGas": max(gas_price * 2, base_fee * 2 + priority_fee),
+    }
+
+
 class ProofPublisher:
     def __init__(self, config: RobinhoodChainConfig):
         self.config = config
@@ -260,7 +285,7 @@ class ProofPublisher:
             "from": account.address,
             "chainId": int(self.config.chain_id),
             "nonce": nonce,
-            "gasPrice": web3.eth.gas_price,
+            **transaction_fee_fields(web3),
         })
         estimated_gas = web3.eth.estimate_gas(transaction)
         transaction["gas"] = max(100_000, int(estimated_gas * 1.2))
@@ -288,7 +313,7 @@ class ProofPublisher:
             "from": account.address,
             "chainId": int(self.config.chain_id),
             "nonce": nonce,
-            "gasPrice": web3.eth.gas_price,
+            **transaction_fee_fields(web3),
         })
         transaction["gas"] = max(100_000, int(web3.eth.estimate_gas(transaction) * 1.2))
         signed = account.sign_transaction(transaction)
