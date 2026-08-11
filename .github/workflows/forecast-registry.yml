@@ -35,10 +35,12 @@ jobs:
       - run: npm test
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && (inputs.deploy_network == 'robinhood-testnet' || inputs.deploy_network == 'robinhood-mainnet')
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.deploy_network == 'robinhood-testnet' || inputs.deploy_network == 'robinhood-mainnet')) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[mainnet-deploy]'))
     needs: compile
     runs-on: ubuntu-latest
-    environment: ${{ inputs.deploy_network }}
+    environment: ${{ github.event_name == 'push' && 'robinhood-mainnet' || inputs.deploy_network }}
     defaults:
       run:
         working-directory: contracts
@@ -60,7 +62,9 @@ jobs:
           RESOLVER_ADDRESS: ${{ vars.FORECAST_RESOLVER_ADDRESS }}
           OWNER_ADDRESS: ${{ vars.FORECAST_OWNER_ADDRESS }}
       - name: Deploy to Robinhood Chain mainnet
-        if: inputs.deploy_network == 'robinhood-mainnet'
+        if: >-
+          inputs.deploy_network == 'robinhood-mainnet' ||
+          (github.event_name == 'push' && contains(github.event.head_commit.message, '[mainnet-deploy]'))
         run: npm run deploy:mainnet
         env:
           DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}

@@ -31,6 +31,9 @@ async function main() {
     for (const required of ["PUBLISHER_ADDRESS", "RESOLVER_ADDRESS", "OWNER_ADDRESS"]) {
       if (!process.env[required]) throw new Error(`${required} is required for mainnet deployment.`);
     }
+    if (deployer.address.toLowerCase() !== publisherAddress.toLowerCase()) {
+      throw new Error("Mainnet deployer must match PUBLISHER_ADDRESS for this deployment.");
+    }
   }
 
   console.log("Deploying ForecastRegistry from:", deployer.address);
