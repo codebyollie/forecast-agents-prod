@@ -70,7 +70,9 @@ jobs:
           OWNER_ADDRESS: ${{ vars.FORECAST_OWNER_ADDRESS }}
 
   lifecycle-smoke:
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy_network == 'robinhood-testnet-smoke'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_network == 'robinhood-testnet-smoke') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[proof-smoke]'))
     needs: compile
     runs-on: ubuntu-latest
     environment: robinhood-testnet
