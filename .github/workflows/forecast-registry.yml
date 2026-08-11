@@ -15,6 +15,7 @@ on:
         options:
           - compile-only
           - robinhood-testnet
+          - robinhood-testnet-smoke
           - robinhood-mainnet
 
 jobs:
@@ -34,7 +35,7 @@ jobs:
       - run: npm test
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy_network != 'compile-only'
+    if: github.event_name == 'workflow_dispatch' && (inputs.deploy_network == 'robinhood-testnet' || inputs.deploy_network == 'robinhood-mainnet')
     needs: compile
     runs-on: ubuntu-latest
     environment: ${{ inputs.deploy_network }}
@@ -67,3 +68,25 @@ jobs:
           PUBLISHER_ADDRESS: ${{ vars.FORECAST_PUBLISHER_ADDRESS }}
           RESOLVER_ADDRESS: ${{ vars.FORECAST_RESOLVER_ADDRESS }}
           OWNER_ADDRESS: ${{ vars.FORECAST_OWNER_ADDRESS }}
+
+  lifecycle-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_network == 'robinhood-testnet-smoke'
+    needs: compile
+    runs-on: ubuntu-latest
+    environment: robinhood-testnet
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+      - run: npm ci
+      - name: Run commit, resolve and Brier Score lifecycle on testnet
+        run: npm run smoke:testnet
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}
+          RH_TESTNET_RPC_URL: ${{ secrets.RH_TESTNET_RPC_URL }}
