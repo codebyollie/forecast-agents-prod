@@ -106,7 +106,7 @@ class BravadoConfig:
     api_token: str = ""
     api_url: str = "https://partner-api.bravadotrade.com/trader-analytics"
     timeout_seconds: float = 20.0
-    leaderboard_window: str = "30d"
+    leaderboard_window: str = "all"
     scan_limit: int = 12
     min_trades: int = 20
 

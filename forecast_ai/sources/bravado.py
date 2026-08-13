@@ -49,7 +49,7 @@ class BravadoSource(BaseSource):
         api_token: str,
         api_url: str = "https://partner-api.bravadotrade.com/trader-analytics",
         timeout_seconds: float = 20.0,
-        leaderboard_window: str = "30d",
+        leaderboard_window: str = "all",
         scan_limit: int = 12,
         min_trades: int = 20,
     ):
@@ -103,12 +103,12 @@ class BravadoSource(BaseSource):
             return self._leaderboard_cache
         payload = await self._get("leaderboard", {
             "window": self.leaderboard_window,
-            "limit": self.scan_limit,
+            # Fetch a wider cohort, then spend position requests only on traders
+            # that the leaderboard reports as having active positions.
+            "limit": max(50, self.scan_limit),
             "offset": 0,
             "min_trades": self.min_trades,
             "exclude_bots": "true",
-            "basis": "net",
-            "income": "none",
         })
         self._leaderboard_cache = payload
         self._leaderboard_cached_at = time.time()
@@ -119,7 +119,29 @@ class BravadoSource(BaseSource):
         cached = self._positions_cache.get(normalized)
         if cached and time.time() - cached[0] < 300:
             return cached[1]
-        payload = await self._get(f"traders/{normalized}/positions/active")
+        page_size = 500
+        payload = await self._get(
+            f"traders/{normalized}/positions/active",
+            {"limit": page_size, "offset": 0},
+        )
+        positions = self._records(payload, "positions", "results")
+        total = int(self._number(payload.get("total")) or len(positions))
+        offset = len(positions)
+        # Bravado supports paginated position responses. Cap collection at
+        # 1,000 positions per trader to keep partner API usage predictable.
+        while offset < total and offset < 1000 and positions:
+            page = await self._get(
+                f"traders/{normalized}/positions/active",
+                {"limit": page_size, "offset": offset},
+            )
+            page_positions = self._records(page, "positions", "results")
+            if not page_positions:
+                break
+            positions.extend(page_positions)
+            offset += len(page_positions)
+        payload = dict(payload)
+        payload["positions"] = positions
+        payload["total"] = total
         self._positions_cache[normalized] = (time.time(), payload)
         return payload
 
@@ -205,9 +227,15 @@ class BravadoSource(BaseSource):
         condition_id: Optional[str] = None,
     ) -> List[Evidence]:
         leaderboard = await self._leaderboard()
+        leaderboard_rows = self._records(leaderboard, "results")
         leaders = [
-            row for row in self._records(leaderboard, "results")
-            if self._wallet(row) and not bool(row.get("is_mm_bot"))
+            row for row in leaderboard_rows
+            if self._wallet(row)
+            and not bool(row.get("is_mm_bot"))
+            and (
+                row.get("active_positions") is None
+                or (self._number(row.get("active_positions")) or 0) > 0
+            )
         ][:self.scan_limit]
         semaphore = asyncio.Semaphore(5)
 
@@ -266,6 +294,7 @@ class BravadoSource(BaseSource):
             "smart_money_wallets": [match["wallet"] for match in matches[:10]],
             "smart_money_traders": matches[:10],
             "leaderboard_window": self.leaderboard_window,
+            "leaderboard_wallets_considered": len(leaderboard_rows),
             "leaderboard_wallets_scanned": len(leaders),
         }
         return [Evidence(
