@@ -221,7 +221,9 @@ def build_opportunity_radar(
                         "smart_money_wallet_count", "smart_money_direction",
                         "smart_money_position_value_usdc", "smart_money_average_win_rate",
                         "smart_money_wallets", "smart_money_traders",
-                        "leaderboard_window", "leaderboard_wallets_scanned",
+                        "leaderboard_window", "leaderboard_windows",
+                        "leaderboard_window_counts", "leaderboard_wallets_scanned",
+                        "leaderboard_unique_wallets_considered",
                     )
                     if key in bravado_signals
                 } | {

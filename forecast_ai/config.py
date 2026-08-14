@@ -106,9 +106,9 @@ class BravadoConfig:
     api_token: str = ""
     api_url: str = "https://partner-api.bravadotrade.com/trader-analytics"
     timeout_seconds: float = 20.0
-    leaderboard_window: str = "all"
-    scan_limit: int = 12
-    min_trades: int = 20
+    leaderboard_window: str = "24h,7d,30d"
+    scan_limit: int = 30
+    min_trades: int = 5
 
 @dataclass
 class TavilyConfig:

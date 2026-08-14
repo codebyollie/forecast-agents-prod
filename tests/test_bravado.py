@@ -72,7 +72,11 @@ async def test_bravado_matches_ranked_non_bot_positions(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bravado_reports_no_match_without_inventing_a_signal(monkeypatch):
-    source = BravadoSource(api_token="test-token", scan_limit=1)
+    source = BravadoSource(
+        api_token="test-token",
+        leaderboard_window="24h",
+        scan_limit=1,
+    )
 
     async def fake_get(path, params=None):
         if path == "leaderboard":
@@ -94,7 +98,11 @@ async def test_bravado_reports_no_match_without_inventing_a_signal(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bravado_skips_wallets_without_active_positions(monkeypatch):
-    source = BravadoSource(api_token="test-token", scan_limit=2)
+    source = BravadoSource(
+        api_token="test-token",
+        leaderboard_window="24h",
+        scan_limit=2,
+    )
     calls = []
 
     async def fake_get(path, params=None):
@@ -158,3 +166,52 @@ async def test_bravado_collects_paginated_active_positions(monkeypatch):
             {"limit": 500, "offset": 500},
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_bravado_merges_recent_windows_and_deduplicates_wallets(monkeypatch):
+    source = BravadoSource(
+        api_token="test-token",
+        leaderboard_window="24h,7d,30d",
+        scan_limit=30,
+        min_trades=5,
+    )
+    calls = []
+
+    async def fake_get(path, params=None):
+        calls.append((path, params))
+        window = params["window"]
+        shared = {
+            "trader": "0x1111111111111111111111111111111111111111",
+            "rank": 2,
+            "active_positions": 1,
+            "is_mm_bot": False,
+        }
+        rows = [shared]
+        if window == "7d":
+            rows.append({
+                "trader": "0x2222222222222222222222222222222222222222",
+                "rank": 1,
+                "active_positions": 2,
+                "is_mm_bot": False,
+            })
+        if window == "30d":
+            rows.append({
+                "trader": "0x3333333333333333333333333333333333333333",
+                "rank": 1,
+                "active_positions": 2,
+                "is_mm_bot": True,
+            })
+        return {"results": rows}
+
+    monkeypatch.setattr(source, "_get", fake_get)
+    candidates, counts = await source._leaderboard_candidates()
+
+    assert [params["window"] for _, params in calls] == ["24h", "7d", "30d"]
+    assert all(params["exclude_bots"] == "true" for _, params in calls)
+    assert all(params["limit"] == 50 for _, params in calls)
+    assert all(params["min_trades"] == 5 for _, params in calls)
+    assert counts == {"24h": 1, "7d": 2, "30d": 2}
+    assert len(candidates) == 2
+    assert candidates[0]["trader"] == "0x1111111111111111111111111111111111111111"
+    assert candidates[0]["_leaderboard_windows"] == ["24h", "7d", "30d"]
