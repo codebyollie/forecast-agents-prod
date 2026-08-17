@@ -15,6 +15,11 @@ class DummyProvider(BaseProvider):
     async def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.3) -> str:
         return '{"probability": 0.75, "confidence": 0.8, "reasoning": "Test reasoning based on evidence.", "warnings": []}'
 
+
+def test_facts_ai_uses_production_endpoint_by_default():
+    assert FactsAISource(api_key="test_key").api_url == "https://factsai.org/answer"
+    assert ForecastConfig().facts_ai.api_url == "https://factsai.org/answer"
+
 @pytest.mark.asyncio
 async def test_facts_ai_source_success():
     source = FactsAISource(api_key="test_key", api_url="https://mock.factsai.org/answer")

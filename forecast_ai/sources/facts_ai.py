@@ -1,7 +1,7 @@
 """
 FactsAI Deep Research API Source Connector.
 
-Queries FactsAI's serverless Cloudflare Edge API (`/answer`) for synthesized research
+Queries FactsAI's production API (`/answer`) for synthesized research
 and cited sources. Handles HTTP error codes explicitly (401, 402, 429, 500).
 """
 
@@ -46,7 +46,7 @@ class FactsAISource(BaseSource):
     def __init__(
         self,
         api_key: str = "",
-        api_url: str = "https://deep-research-api.degodmode3-33.workers.dev/answer",
+        api_url: str = "https://factsai.org/answer",
         query_max_length: int = 1000
     ):
         self.api_key = api_key

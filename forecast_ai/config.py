@@ -79,7 +79,7 @@ class ServerConfig:
 class FactsAIConfig:
     enabled: bool = False  # Off by default to prevent unintended API costs
     api_key: str = ""
-    api_url: str = "https://deep-research-api.degodmode3-33.workers.dev/answer"
+    api_url: str = "https://factsai.org/answer"
     query_max_length: int = 1000
     rate_limit_per_min: int = 100
     coarse_refresh_interval_cycles: int = 2

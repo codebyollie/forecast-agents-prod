@@ -32,7 +32,7 @@ To enable FactsAI Deep Research on your Forecast AI backend instance:
    ```
 
 3. **API Endpoint & Parameters**:
-   - **Endpoint**: `POST https://deep-research-api.degodmode3-33.workers.dev/answer`
+   - **Endpoint**: `POST https://factsai.org/answer`
    - **Auth Header**: `Authorization: Bearer {FACTSAI_API_KEY}`
    - **Payload**: `{"query": "<market_question>"}` (automatically truncated to max 1,000 characters).
 
