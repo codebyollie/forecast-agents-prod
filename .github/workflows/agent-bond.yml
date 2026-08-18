@@ -12,7 +12,7 @@ jobs:
   deploy-agent-bond:
     if: github.event.inputs.deploy_network == 'mainnet'
     runs-on: ubuntu-latest
-    environment: production
+    environment: robinhood-mainnet
     defaults:
       run:
         working-directory: contracts
