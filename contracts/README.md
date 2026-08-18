@@ -4,6 +4,12 @@
 official binary outcomes, calculates Brier Scores, and maintains per-agent and
 per-category score totals.
 
+`AgentBonding.sol` is the separate mainnet-ready `$FORAI` bond contract for
+user-created identities. It locks a fixed amount per identity, permits only
+the agent owner to unlock, permanently retires an identity after unlock, and
+has no admin token-withdrawal function. The owner can pause new locks and
+transfer ownership in two steps, but cannot change the bond amount.
+
 The first deployment must use Robinhood Chain testnet. Mainnet should only be
 selected after a successful commit/resolve test and contract review.
 
@@ -48,3 +54,26 @@ The contract includes an owner circuit breaker for new commitments, publisher
 key rotation, idempotent transaction retries, resolver authorization, and
 deterministic per-agent/per-category Brier statistics. Resolution remains
 available while new commitments are paused.
+
+## AgentBonding mainnet deployment
+
+Deploy only after independent contract review and a dry-run against the real
+FORAI token. The deployment script reads the token decimals and fixes the bond
+at `AGENT_BOND_TOKENS` (default `200000`).
+
+```env
+FORAI_TOKEN_ADDRESS=0xcc9c1ec224c3824ae5ea699ec72ef5fad4165e49
+AGENT_BOND_TOKENS=200000
+RH_MAINNET_RPC_URL=https://YOUR_ALCHEMY_MAINNET_ENDPOINT
+DEPLOYER_PRIVATE_KEY=0x_MAINNET_DEPLOYER_KEY
+```
+
+```bash
+npm install
+npm test
+npm run compile
+npm run deploy:agent-bond:mainnet
+```
+
+Record the resulting `AgentBonding` address. Never put the deployer private
+key in the frontend or Railway frontend variables.
