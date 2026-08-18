@@ -25,6 +25,93 @@ from ..proof.outbox import SupabaseProofOutbox
 
 logger = logging.getLogger(__name__)
 
+AGENT_IDS = ("news", "social", "reddit", "research", "macro", "onchain", "market")
+SPECIALIST_AGENT_MAP = {
+    "evidence": "research",
+    "market-scout": "market",
+    "risk-challenger": "macro",
+}
+
+
+def normalize_agent_runtime(value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Validate the server-supplied Agent Studio runtime before using it."""
+    if not isinstance(value, dict):
+        return None
+    agent_id = str(value.get("id") or "").strip()
+    name = str(value.get("name") or "").strip()[:80]
+    mode = str(value.get("mode") or "").strip().lower()
+    template_id = str(value.get("template_id") or "").strip().lower()
+    config = value.get("config") if isinstance(value.get("config"), dict) else {}
+    raw_modules = config.get("modules") if isinstance(config.get("modules"), dict) else {}
+    raw_models = config.get("models") if isinstance(config.get("models"), dict) else {}
+    if not agent_id or not name or mode not in {"custom", "specialist"}:
+        raise ValueError("Invalid Agent Studio runtime identity.")
+    if mode == "custom" and template_id != "forecast-swarm":
+        raise ValueError("Invalid custom Swarm template.")
+    if mode == "specialist" and template_id not in SPECIALIST_AGENT_MAP:
+        raise ValueError("Unsupported standalone specialist template.")
+
+    selected_agents = list(AGENT_IDS) if mode == "custom" else [SPECIALIST_AGENT_MAP[template_id]]
+    modules = {
+        str(key): [str(item) for item in items if isinstance(item, str)]
+        for key, items in raw_modules.items()
+        if isinstance(items, list)
+    }
+    models = {
+        str(key): str(model)
+        for key, model in raw_models.items()
+        if isinstance(model, str)
+    }
+    return {
+        "id": agent_id,
+        "name": name,
+        "mode": mode,
+        "template_id": template_id,
+        "category": str(config.get("category") or "General")[:80],
+        "selected_agents": selected_agents,
+        "modules": modules,
+        "models": models,
+    }
+
+
+def runtime_modules_for_agent(runtime: Optional[Dict[str, Any]], agent_name: str) -> Optional[set[str]]:
+    if not runtime:
+        return None
+    module_key = runtime["template_id"] if runtime["mode"] == "specialist" else agent_name
+    configured = runtime.get("modules", {}).get(module_key)
+    return set(configured) if isinstance(configured, list) else set()
+
+
+def filter_runtime_evidence(evidence: List[Evidence], enabled_modules: Optional[set[str]]) -> List[Evidence]:
+    """Enforce Agent Studio module choices without trusting client labels."""
+    if enabled_modules is None:
+        return evidence
+    filtered: List[Evidence] = []
+    for item in evidence:
+        metadata = item.metadata or {}
+        provider = str(metadata.get("provider") or "").lower()
+        source_type = str(metadata.get("source_type") or "").lower()
+        source_name = item.source_name.lower()
+        module = None
+        if provider == "factsai" or "factsai" in source_name or "facts_ai" in source_name:
+            module = "factsai"
+        elif provider == "tavily" or "tavily" in source_name:
+            module = "tavily"
+        elif provider == "falcon" or source_name.startswith("falcon"):
+            module = "falcon-social" if source_type.startswith("social") else "falcon-market"
+        elif "news" in source_name or "rss" in source_name:
+            module = "newsrss"
+        elif "blockchain" in source_name or "onchain" in source_name:
+            module = "chain-data"
+        elif source_name in {"polymarket", "kalshi"}:
+            module = "markets"
+        elif provider == "bravado" or source_name.startswith("bravado"):
+            # Bravado is platform-managed market intelligence, not a user-selectable partner module.
+            module = "markets"
+        if module is None or module in enabled_modules:
+            filtered.append(item)
+    return filtered
+
 
 def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List[Evidence]:
     """Give each Swarm node only the evidence relevant to its specialty."""
@@ -143,10 +230,13 @@ class ForecastPipeline:
         venue: Optional[str] = None,
         category: Optional[str] = None,
         market_closes_at: Optional[str] = None,
+        agent_runtime: Optional[Dict[str, Any]] = None,
     ) -> ForecastResult:
         """
         Orchestrates full forecasting process.
         """
+        runtime = normalize_agent_runtime(agent_runtime)
+
         # 1. Gather evidence
         evidence = await self.source_manager.gather_evidence(
             question,
@@ -157,7 +247,11 @@ class ForecastPipeline:
         # FactsAI is a paid partner source. Fetch it once per forecast and share
         # the same verified research with News, Research, and Macro agents.
         # This replaces the previous three independent calls per Swarm run.
-        facts_enabled = getattr(self.config.facts_ai, "enabled", False)
+        runtime_uses_facts = runtime is None or any(
+            "factsai" in (runtime_modules_for_agent(runtime, agent_name) or set())
+            for agent_name in runtime["selected_agents"]
+        )
+        facts_enabled = getattr(self.config.facts_ai, "enabled", False) and runtime_uses_facts
         facts_api_key = facts_key or getattr(self.config.facts_ai, "api_key", "")
         if facts_enabled and facts_api_key:
             from ..sources.facts_ai import FactsAISource
@@ -239,13 +333,26 @@ class ForecastPipeline:
                     ))
 
         # 2. Query active agents in parallel
-        active_agents = list(self.agents.values())
+        selected_agent_ids = set(runtime["selected_agents"]) if runtime else set(self.agents)
+        active_agents = [agent for name, agent in self.agents.items() if name in selected_agent_ids]
         predictions = []
 
         async def _query_agent(agent):
+            enabled_modules = runtime_modules_for_agent(runtime, agent.name)
             agent_evidence = _route_evidence_for_agent(agent.name, evidence)
+            agent_evidence = filter_runtime_evidence(
+                agent_evidence,
+                enabled_modules,
+            )
             try:
-                return await agent.forecast(question, agent_evidence, is_public_feed=is_public_feed, model_override=model_override, facts_key=facts_key)
+                return await agent.forecast(
+                    question,
+                    agent_evidence,
+                    is_public_feed=is_public_feed,
+                    model_override=model_override,
+                    facts_key=facts_key,
+                    enabled_modules=enabled_modules,
+                )
             except ProviderError as pe:
                 logger.error(f"[ForecastPipeline] Agent '{agent.name}' failed after provider fallbacks: {pe}")
                 return None
@@ -271,6 +378,17 @@ class ForecastPipeline:
         result.metadata["venue"] = venue
         result.metadata["category"] = category or "Other"
         result.metadata["market_closes_at"] = market_closes_at
+        if runtime:
+            result.metadata["agent_runtime"] = {
+                "id": runtime["id"],
+                "name": runtime["name"],
+                "mode": runtime["mode"],
+                "template_id": runtime["template_id"],
+                "category": runtime["category"],
+                "selected_agents": runtime["selected_agents"],
+                "models": runtime["models"],
+                "modules": runtime["modules"],
+            }
         
         # 4. Attach model_used metadata reflecting reality
         result.metadata["model_used"] = model_override or getattr(self.config, "default_model", "gpt-4o")
@@ -322,6 +440,8 @@ class ForecastPipeline:
             chain_id=self.config.robinhood_chain.chain_id,
             contract_address=self.config.robinhood_chain.registry_address or None,
             explorer_url=self.config.robinhood_chain.explorer_url,
+            agent_namespace=runtime["id"] if runtime else None,
+            agent_identity=result.metadata.get("agent_runtime"),
         )
         result.metadata["proof"] = proof
         result.metadata["opportunity_radar"]["proof"] = {

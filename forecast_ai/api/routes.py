@@ -66,6 +66,7 @@ class PredictionRequest(BaseModel):
     source_venue: Optional[str] = None
     category: Optional[str] = None
     market_closes_at: Optional[str] = None
+    agent_runtime: Optional[Dict[str, Any]] = None
 
 class CalibrateRequest(BaseModel):
     agent_name: str
@@ -224,6 +225,7 @@ async def predict(
             venue=selected_venue,
             category=req.category,
             market_closes_at=req.market_closes_at,
+            agent_runtime=req.agent_runtime,
         )
         agent_breakdown = [
             {
@@ -267,6 +269,7 @@ async def predict(
             "opportunity_radar": result.metadata.get("opportunity_radar", {}),
             "outcome_graph": result.metadata.get("outcome_graph", {}),
             "proof": result.metadata.get("proof", {}),
+            "agent_runtime": result.metadata.get("agent_runtime"),
             "timestamp": result.timestamp.isoformat(),
             "agent_breakdown": agent_breakdown,
             "individual_predictions": agent_breakdown,

@@ -66,6 +66,25 @@ def test_envelope_is_not_queued_without_a_deployed_registry():
     assert proof["queue_eligible"] is False
 
 
+def test_agent_studio_identity_namespaces_onchain_commitments():
+    proof = build_forecast_envelope(
+        _forecast(),
+        "Question?",
+        "Polymarket",
+        "Politics",
+        "2030-01-01",
+        proof_enabled=True,
+        contract_address="0x1111111111111111111111111111111111111111",
+        agent_namespace="studio-agent-id",
+        agent_identity={"id": "studio-agent-id", "name": "My Agent", "mode": "specialist"},
+    )
+
+    assert proof["payload"]["agent_identity"]["id"] == "studio-agent-id"
+    assert proof["payload"]["agent_predictions"][0]["agent_id"] == "studio-agent-id:research"
+    assert proof["onchain_commitments"][0]["agent_name"] == "studio-agent-id:consensus"
+    assert proof["onchain_commitments"][1]["agent_name"] == "studio-agent-id:research"
+
+
 def test_envelope_is_not_queued_without_a_future_close_time():
     proof = build_forecast_envelope(
         _forecast(),

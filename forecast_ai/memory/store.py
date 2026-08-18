@@ -51,6 +51,8 @@ class MemoryStore:
         forecasts = self._load_json(self.forecasts_file)
         
         # Serialize ForecastResult
+        runtime = result.metadata.get("agent_runtime") or {}
+        namespace = runtime.get("id")
         entry = {
             "forecast_id": result.metadata.get("proof", {}).get("forecast_id"),
             "payload_hash": result.metadata.get("proof", {}).get("payload_hash"),
@@ -68,7 +70,8 @@ class MemoryStore:
             "timestamp": result.timestamp.isoformat(),
             "predictions": [
                 {
-                    "agent_name": p.agent_name,
+                    "agent_name": f"{namespace}:{p.agent_name}" if namespace else p.agent_name,
+                    "role": p.agent_name,
                     "probability": p.probability,
                     "confidence": p.confidence.score,
                     "reasoning": p.reasoning

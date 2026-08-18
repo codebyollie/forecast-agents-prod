@@ -37,7 +37,15 @@ class ForecastAgent(ABC):
         """
         pass
 
-    async def forecast(self, question: str, evidence: List[Evidence], is_public_feed: bool = False, model_override: Optional[str] = None, facts_key: Optional[str] = None) -> Prediction:
+    async def forecast(
+        self,
+        question: str,
+        evidence: List[Evidence],
+        is_public_feed: bool = False,
+        model_override: Optional[str] = None,
+        facts_key: Optional[str] = None,
+        enabled_modules: Optional[set[str]] = None,
+    ) -> Prediction:
         """
         Run the agent prediction flow using LLM.
         """
@@ -159,7 +167,7 @@ class ForecastAgent(ABC):
         facts_ai_enabled = (
             getattr(self.config.facts_ai, "enabled", False)
             or os.getenv("FACTSAI_ENABLED", "").lower() in ("true", "1", "yes")
-        )
+        ) and (enabled_modules is None or "factsai" in enabled_modules)
         facts_used = False
         facts_ai_attempted = False
 
@@ -271,7 +279,7 @@ class ForecastAgent(ABC):
         tavily_enabled = (
             getattr(self.config.tavily, "enabled", False)
             or os.getenv("TAVILY_ENABLED", "").lower() in ("true", "1", "yes")
-        )
+        ) and (enabled_modules is None or "tavily" in enabled_modules)
         specialized_domains = {
             "social": ["x.com", "twitter.com", "bsky.app", "threads.net"],
             "reddit": ["reddit.com"],

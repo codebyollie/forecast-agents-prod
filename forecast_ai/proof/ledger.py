@@ -61,6 +61,8 @@ def build_forecast_envelope(
     chain_id: int = 4663,
     contract_address: str | None = None,
     explorer_url: str | None = None,
+    agent_namespace: str | None = None,
+    agent_identity: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     payload = {
         "schema": "forecast-ai-proof-v1",
@@ -74,13 +76,16 @@ def build_forecast_envelope(
         "confidence": round(float(result.confidence.score), 6),
         "agent_predictions": [
             {
-                "agent_id": prediction.agent_name,
+                "agent_id": f"{agent_namespace}:{prediction.agent_name}" if agent_namespace else prediction.agent_name,
+                **({"role": prediction.agent_name} if agent_namespace else {}),
                 "probability": round(float(prediction.probability), 6),
                 "confidence": round(float(prediction.confidence.score), 6),
             }
             for prediction in sorted(result.individual_predictions, key=lambda item: item.agent_name)
         ],
     }
+    if agent_identity:
+        payload["agent_identity"] = agent_identity
     canonical = _canonical_json(payload)
     payload_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     payload_hash_hex = f"0x{payload_hash}"
@@ -99,8 +104,11 @@ def build_forecast_envelope(
     else:
         proof_status = "pending_onchain"
     probability_rows = [
-        ("consensus", float(result.probability)),
-        *[(prediction.agent_name, float(prediction.probability)) for prediction in result.individual_predictions],
+        (f"{agent_namespace}:consensus" if agent_namespace else "consensus", float(result.probability)),
+        *[
+            (f"{agent_namespace}:{prediction.agent_name}" if agent_namespace else prediction.agent_name, float(prediction.probability))
+            for prediction in result.individual_predictions
+        ],
     ]
     commitments = [
         {
