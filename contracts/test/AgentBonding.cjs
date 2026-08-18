@@ -6,7 +6,7 @@ describe("AgentBonding", function () {
     const [owner, user, other] = await ethers.getSigners();
     const token = await ethers.deployContract("MockERC20");
     const bondAmount = ethers.parseUnits("200000", 18);
-    const bonding = await ethers.deployContract("AgentBonding", [token.target, bondAmount]);
+    const bonding = await ethers.deployContract("AgentBonding", [token.target, bondAmount, owner.address]);
     await token.mint(user.address, bondAmount * 2n);
     return { owner, user, other, token, bonding, bondAmount };
   }

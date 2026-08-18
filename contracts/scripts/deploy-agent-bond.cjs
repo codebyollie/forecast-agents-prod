@@ -3,6 +3,8 @@ const hre = require("hardhat");
 async function main() {
   const tokenAddress = process.env.FORAI_TOKEN_ADDRESS;
   if (!tokenAddress) throw new Error("FORAI_TOKEN_ADDRESS is required");
+  const ownerAddress = process.env.AGENT_BOND_OWNER_ADDRESS;
+  if (!ownerAddress) throw new Error("AGENT_BOND_OWNER_ADDRESS is required");
   const token = await hre.ethers.getContractAt(
     ["function decimals() view returns (uint8)"],
     tokenAddress,
@@ -12,9 +14,10 @@ async function main() {
   const bondAmount = hre.ethers.parseUnits(bondTokens, decimals);
   const deployer = (await hre.ethers.getSigners())[0];
   console.log("Deploying AgentBonding from:", deployer.address);
+  console.log("Contract owner:", ownerAddress);
   console.log("FORAI token:", tokenAddress);
   console.log("Bond tokens:", bondTokens, "decimals:", decimals.toString());
-  const bonding = await hre.ethers.deployContract("AgentBonding", [tokenAddress, bondAmount]);
+  const bonding = await hre.ethers.deployContract("AgentBonding", [tokenAddress, bondAmount, ownerAddress]);
   await bonding.waitForDeployment();
   console.log("AgentBonding:", bonding.target);
   console.log("Token approval target:", bonding.target);

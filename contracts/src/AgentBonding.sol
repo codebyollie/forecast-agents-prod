@@ -42,12 +42,12 @@ contract AgentBonding {
     error TransferFailed();
     error Paused();
 
-    constructor(address tokenAddress, uint256 amount) {
-        if (tokenAddress == address(0) || amount == 0) revert InvalidInput();
+    constructor(address tokenAddress, uint256 amount, address initialOwner) {
+        if (tokenAddress == address(0) || amount == 0 || initialOwner == address(0)) revert InvalidInput();
         token = IAgentBondToken(tokenAddress);
         bondAmount = amount;
-        owner = msg.sender;
-        emit OwnershipTransferred(address(0), msg.sender);
+        owner = initialOwner;
+        emit OwnershipTransferred(address(0), initialOwner);
     }
 
     modifier onlyOwner() {
