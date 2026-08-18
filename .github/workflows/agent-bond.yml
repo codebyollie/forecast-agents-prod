@@ -1,0 +1,43 @@
+name: AgentBonding
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_network:
+        description: "Type mainnet to confirm the irreversible mainnet deployment"
+        required: true
+        type: string
+
+jobs:
+  deploy-agent-bond:
+    if: github.event.inputs.deploy_network == 'mainnet'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+
+      - name: Install contract dependencies
+        run: npm ci
+
+      - name: Run contract tests
+        run: npm test
+
+      - name: Deploy AgentBonding to Robinhood Chain mainnet
+        run: npm run deploy:agent-bond:mainnet
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.FORECAST_DEPLOYER_PRIVATE_KEY }}
+          RH_MAINNET_RPC_URL: ${{ secrets.RH_MAINNET_RPC_URL }}
+          FORAI_TOKEN_ADDRESS: ${{ vars.FORAI_TOKEN_ADDRESS }}
+          AGENT_BOND_OWNER_ADDRESS: ${{ vars.AGENT_BOND_OWNER_ADDRESS }}
+          AGENT_BOND_TOKENS: ${{ vars.AGENT_BOND_TOKENS }}
