@@ -1,6 +1,7 @@
 import pytest
 
 from forecast_ai.agents.market import MarketAgent
+from forecast_ai.agents.research import ResearchAgent
 from forecast_ai.config import ForecastConfig
 from forecast_ai.models.evidence import Evidence
 from forecast_ai.pipelines.forecast import _route_evidence_for_agent
@@ -61,6 +62,16 @@ def test_mihari_rwa_intelligence_is_routed_only_to_onchain_agent():
     assert _route_evidence_for_agent("macro", [market, mihari]) == [market]
 
 
+def test_perigon_and_exa_are_routed_to_their_specialist_roles():
+    market = _evidence("polymarket")
+    perigon = _evidence("Perigon News", "structured_news", "Perigon")
+    exa = _evidence("Exa Deep Research", "deep_research", "Exa")
+
+    assert _route_evidence_for_agent("news", [market, perigon, exa]) == [perigon]
+    assert _route_evidence_for_agent("research", [market, perigon, exa]) == [perigon, exa]
+    assert _route_evidence_for_agent("market", [market, perigon, exa]) == [market]
+
+
 @pytest.mark.asyncio
 async def test_falcon_active_status_wins_when_optional_layer_is_unavailable():
     agent = MarketAgent(name="market", provider=DummyProvider(), config=ForecastConfig())
@@ -81,3 +92,31 @@ async def test_falcon_active_status_wins_when_optional_layer_is_unavailable():
 
     assert prediction.provider_statuses["Falcon"] == "active"
     assert "Falcon Market Intelligence" in prediction.provider_insights
+
+
+@pytest.mark.asyncio
+async def test_perigon_and_exa_are_exposed_as_active_research_providers():
+    agent = ResearchAgent(name="research", provider=DummyProvider(), config=ForecastConfig())
+    evidence = [
+        Evidence(
+            source_name="Perigon News",
+            content="A structured news item.",
+            title="Perigon item",
+            url="https://news.example/item",
+            metadata={"provider": "Perigon", "source_type": "structured_news"},
+        ),
+        Evidence(
+            source_name="Exa Deep Research",
+            content="A deep research finding.",
+            title="Exa finding",
+            url="https://research.example/finding",
+            metadata={"provider": "Exa", "source_type": "deep_research"},
+        ),
+    ]
+
+    prediction = await agent.forecast("Will the event happen?", evidence)
+
+    assert prediction.provider_statuses["Perigon"] == "active"
+    assert prediction.provider_statuses["Exa"] == "active"
+    assert "Perigon Structured News" in prediction.provider_insights
+    assert "Exa Deep Research" in prediction.provider_insights

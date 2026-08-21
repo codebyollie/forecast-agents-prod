@@ -11,6 +11,8 @@ from .falcon import FalconSource
 from .bravado import BravadoSource
 from .mihari import MihariSource
 from .fred import FredSource
+from .perigon import PerigonSource
+from .exa import ExaSource
 from ..models.evidence import Evidence
 from ..config import ForecastConfig
 from .cache import SourceCache
@@ -92,6 +94,22 @@ class SourceManager:
                 api_url=config.fred.api_url,
                 enabled=True,
                 timeout_seconds=config.fred.timeout_seconds,
+            )
+        if getattr(config.perigon, "enabled", False) and getattr(config.perigon, "api_key", ""):
+            self.sources["perigon"] = PerigonSource(
+                api_key=config.perigon.api_key,
+                api_url=config.perigon.api_url,
+                enabled=True,
+                timeout_seconds=config.perigon.timeout_seconds,
+                stories_enabled=config.perigon.stories_enabled,
+            )
+        if getattr(config.exa, "enabled", False) and getattr(config.exa, "api_key", ""):
+            self.sources["exa"] = ExaSource(
+                api_key=config.exa.api_key,
+                api_url=config.exa.api_url,
+                enabled=True,
+                timeout_seconds=config.exa.timeout_seconds,
+                search_type=config.exa.search_type,
             )
 
     async def _fetch_single_source(self, name: str, source: BaseSource, query: str, limit: int) -> List[Evidence]:
@@ -412,5 +430,7 @@ __all__ = [
     "BravadoSource",
     "MihariSource",
     "FredSource",
+    "PerigonSource",
+    "ExaSource",
     "SourceManager",
 ]

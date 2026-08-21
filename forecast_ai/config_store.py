@@ -221,20 +221,27 @@ class ConfigStore:
         if os.environ.get("FRED_TIMEOUT_SECONDS"):
             config.fred.timeout_seconds = max(1.0, float(os.environ["FRED_TIMEOUT_SECONDS"]))
 
-        # Reserved provider configuration. These layers remain disabled until
-        # credentials and production endpoint contracts are supplied.
+        # Structured-news and deep-web research provider configuration.
         if os.environ.get("PERIGON_ENABLED"):
             config.perigon.enabled = os.environ["PERIGON_ENABLED"].lower() in ("true", "1", "yes")
         if os.environ.get("PERIGON_API_KEY"):
             config.perigon.api_key = os.environ["PERIGON_API_KEY"]
         if os.environ.get("PERIGON_API_URL"):
             config.perigon.api_url = os.environ["PERIGON_API_URL"].rstrip("/")
+        if os.environ.get("PERIGON_TIMEOUT_SECONDS"):
+            config.perigon.timeout_seconds = max(1.0, float(os.environ["PERIGON_TIMEOUT_SECONDS"]))
+        if os.environ.get("PERIGON_STORIES_ENABLED"):
+            config.perigon.stories_enabled = os.environ["PERIGON_STORIES_ENABLED"].lower() in ("true", "1", "yes")
         if os.environ.get("EXA_ENABLED"):
             config.exa.enabled = os.environ["EXA_ENABLED"].lower() in ("true", "1", "yes")
         if os.environ.get("EXA_API_KEY"):
             config.exa.api_key = os.environ["EXA_API_KEY"]
         if os.environ.get("EXA_API_URL"):
             config.exa.api_url = os.environ["EXA_API_URL"].rstrip("/")
+        if os.environ.get("EXA_TIMEOUT_SECONDS"):
+            config.exa.timeout_seconds = max(1.0, float(os.environ["EXA_TIMEOUT_SECONDS"]))
+        if os.environ.get("EXA_SEARCH_TYPE"):
+            config.exa.search_type = os.environ["EXA_SEARCH_TYPE"].strip().lower()
 
         return config
 
@@ -352,12 +359,16 @@ class ConfigStore:
             config.perigon.enabled = bool(p.get("enabled", config.perigon.enabled))
             config.perigon.api_key = p.get("api_key", config.perigon.api_key)
             config.perigon.api_url = p.get("api_url", config.perigon.api_url)
+            config.perigon.timeout_seconds = float(p.get("timeout_seconds", config.perigon.timeout_seconds))
+            config.perigon.stories_enabled = bool(p.get("stories_enabled", config.perigon.stories_enabled))
 
         if "exa" in raw:
             e = raw["exa"]
             config.exa.enabled = bool(e.get("enabled", config.exa.enabled))
             config.exa.api_key = e.get("api_key", config.exa.api_key)
             config.exa.api_url = e.get("api_url", config.exa.api_url)
+            config.exa.timeout_seconds = float(e.get("timeout_seconds", config.exa.timeout_seconds))
+            config.exa.search_type = e.get("search_type", config.exa.search_type)
 
         config.default_provider = raw.get("default_provider", config.default_provider)
         if "fallback_providers" in raw and isinstance(raw["fallback_providers"], list):
@@ -458,11 +469,15 @@ class ConfigStore:
                 "enabled": config.perigon.enabled,
                 "api_key": config.perigon.api_key,
                 "api_url": config.perigon.api_url,
+                "timeout_seconds": config.perigon.timeout_seconds,
+                "stories_enabled": config.perigon.stories_enabled,
             },
             "exa": {
                 "enabled": config.exa.enabled,
                 "api_key": config.exa.api_key,
                 "api_url": config.exa.api_url,
+                "timeout_seconds": config.exa.timeout_seconds,
+                "search_type": config.exa.search_type,
             },
         }
         self.save_raw(data)

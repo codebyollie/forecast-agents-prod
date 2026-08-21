@@ -133,17 +133,21 @@ class FredConfig:
 
 @dataclass
 class PerigonConfig:
-    """Reserved configuration for the optional structured-news layer."""
+    """Structured global-news and event-clustering layer."""
     enabled: bool = False
     api_key: str = ""
     api_url: str = "https://api.perigon.io"
+    timeout_seconds: float = 20.0
+    stories_enabled: bool = False
 
 @dataclass
 class ExaConfig:
-    """Reserved configuration for the optional deep-web research layer."""
+    """Deep-web research layer for the Research specialist."""
     enabled: bool = False
     api_key: str = ""
     api_url: str = "https://api.exa.ai"
+    timeout_seconds: float = 25.0
+    search_type: str = "auto"
 
 @dataclass
 class SourcesConfig:

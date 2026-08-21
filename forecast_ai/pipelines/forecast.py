@@ -97,6 +97,12 @@ def filter_runtime_evidence(evidence: List[Evidence], enabled_modules: Optional[
             module = "factsai"
         elif provider == "tavily" or "tavily" in source_name:
             module = "tavily"
+        elif provider == "exa" or "exa" in source_name:
+            # Exa is platform-managed deep-web research.
+            module = "tavily"
+        elif provider == "perigon" or "perigon" in source_name:
+            # Perigon is platform-managed structured news.
+            module = "newsrss"
         elif provider == "falcon" or source_name.startswith("falcon"):
             module = "falcon-social" if source_type.startswith("social") else "falcon-market"
         elif "news" in source_name or "rss" in source_name:
@@ -122,10 +128,10 @@ def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List
     routed: List[Evidence] = []
 
     source_patterns = {
-        "news": ("news", "rss", "facts_ai", "factsai", "tavily"),
+        "news": ("news", "rss", "perigon", "facts_ai", "factsai", "tavily"),
         "social": ("twitter", "social"),
         "reddit": ("reddit",),
-        "research": ("facts_ai", "factsai", "arxiv", "research", "tavily"),
+        "research": ("facts_ai", "factsai", "arxiv", "research", "tavily", "perigon", "exa"),
         "macro": ("macro", "cme", "fred", "news", "rss", "facts_ai", "factsai", "tavily"),
         "onchain": ("blockchain", "onchain", "polygonscan", "mihari", "rwa"),
         "market": ("kalshi", "polymarket", "market", "robinhood"),

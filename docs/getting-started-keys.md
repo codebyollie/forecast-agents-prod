@@ -41,10 +41,10 @@ On hosted cloud platforms without an interactive terminal, Forecast AI automatic
 
 - **Mihari** is a public, read-only Robinhood Stock Token intelligence layer. When a market maps to relevant RWA assets, it adds official corporate-action, multiplier and quote-integrity context to the **Onchain agent**. It does not count as another prediction signal in the Swarm consensus.
 - **FRED** provides official Federal Reserve series to the **Macro agent**. It is requested only for macro-relevant questions such as interest rates, inflation, employment, GDP and Treasury yields.
-- **Perigon** and **Exa** configuration slots are reserved in `.env.example` for later activation. Leave their `*_ENABLED` values as `false` until API access and provider-specific production tests are complete.
+- **Perigon** provides structured global news, source metadata and optional event clusters to the **News** and **Research** agents. Set `PERIGON_ENABLED=true` after adding its key. `PERIGON_STORIES_ENABLED` makes a second, optional event-cluster request and stays `false` by default.
+- **Exa** provides cited deep-web research to the **Research** agent. Set `EXA_ENABLED=true` after adding its key. Start with `EXA_SEARCH_TYPE=auto`; use deeper modes only after confirming their cost and latency fit the product.
 
 ### Setting Environment Variables on Cloud Platforms:
 - **Render**: Navigate to your Service Settings → Environment Variables (or fill in the `sync: false` prompts during Blueprint deployment).
 - **Railway**: Go to your Service Variables tab and enter key-value pairs matching `.env.example`.
 - **GitHub Codespaces**: Set Repository Secrets or create a `.env` file in the root directory.
-

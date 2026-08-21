@@ -203,6 +203,19 @@ class ForecastAgent(ABC):
                     research_providers.add("Bravado")
                     if item.content:
                         provider_insights["Bravado Trader Intelligence"] = str(item.content).strip()[:1500]
+            if inferred_provider == "Perigon":
+                merge_provider_status("Perigon", provider_status or "active")
+                if provider_status in ("", "active"):
+                    research_providers.add("Perigon")
+                    if item.content:
+                        label = "Perigon Event Cluster" if source_type == "event_cluster" else "Perigon Structured News"
+                        provider_insights[label] = str(item.content).strip()[:1500]
+            if inferred_provider == "Exa":
+                merge_provider_status("Exa", provider_status or "active")
+                if provider_status in ("", "active"):
+                    research_providers.add("Exa")
+                    if item.content:
+                        provider_insights["Exa Deep Research"] = str(item.content).strip()[:1500]
             if item.url and source_type != "summary":
                 add_citation(
                     item.title or item.source_name,
