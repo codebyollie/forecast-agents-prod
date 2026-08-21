@@ -9,6 +9,8 @@ from .kalshi import KalshiSource
 from .tavily_search import TavilySearchSource
 from .falcon import FalconSource
 from .bravado import BravadoSource
+from .mihari import MihariSource
+from .fred import FredSource
 from ..models.evidence import Evidence
 from ..config import ForecastConfig
 from .cache import SourceCache
@@ -77,10 +79,25 @@ class SourceManager:
                 api_key=tavily_key,
                 enabled=True
             )
+        if getattr(config.mihari, "enabled", False):
+            self.sources["mihari"] = MihariSource(
+                api_url=config.mihari.api_url,
+                enabled=True,
+                timeout_seconds=config.mihari.timeout_seconds,
+                max_symbols=config.mihari.max_symbols,
+            )
+        if getattr(config.fred, "enabled", False) and getattr(config.fred, "api_key", ""):
+            self.sources["fred"] = FredSource(
+                api_key=config.fred.api_key,
+                api_url=config.fred.api_url,
+                enabled=True,
+                timeout_seconds=config.fred.timeout_seconds,
+            )
 
     async def _fetch_single_source(self, name: str, source: BaseSource, query: str, limit: int) -> List[Evidence]:
         # Check Cache first
-        cached = self.cache.get(name, query)
+        cache_ttl = int(getattr(source, "cache_ttl_seconds", 3600))
+        cached = self.cache.get(name, query, ttl_seconds=cache_ttl)
         if cached is not None:
             return cached
 
@@ -393,5 +410,7 @@ __all__ = [
     "TavilySearchSource",
     "FalconSource",
     "BravadoSource",
+    "MihariSource",
+    "FredSource",
     "SourceManager",
 ]

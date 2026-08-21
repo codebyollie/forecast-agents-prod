@@ -32,11 +32,19 @@ On hosted cloud platforms without an interactive terminal, Forecast AI automatic
 | `TAVILY_API_KEY` | Tavily Search API Key | `tvly-...` |
 | `FACTSAI_API_KEY` | FactsAI Deep Research API Key | `forecast_b0db...` |
 | `FACTSAI_ENABLED` | Enable FactsAI (`true`/`false`) | `true` |
+| `MIHARI_ENABLED` | Enable public Mihari RWA intelligence for the Onchain agent. No API key required. | `true` |
+| `FRED_API_KEY` | Free FRED API key for official macroeconomic series. | `abc123...` |
+| `FRED_ENABLED` | Enable FRED for macro-relevant questions only. | `true` |
 | `SERVER_PORT` | FastAPI Server Port | `30000` |
+
+### Market intelligence layers
+
+- **Mihari** is a public, read-only Robinhood Stock Token intelligence layer. When a market maps to relevant RWA assets, it adds official corporate-action, multiplier and quote-integrity context to the **Onchain agent**. It does not count as another prediction signal in the Swarm consensus.
+- **FRED** provides official Federal Reserve series to the **Macro agent**. It is requested only for macro-relevant questions such as interest rates, inflation, employment, GDP and Treasury yields.
+- **Perigon** and **Exa** configuration slots are reserved in `.env.example` for later activation. Leave their `*_ENABLED` values as `false` until API access and provider-specific production tests are complete.
 
 ### Setting Environment Variables on Cloud Platforms:
 - **Render**: Navigate to your Service Settings → Environment Variables (or fill in the `sync: false` prompts during Blueprint deployment).
 - **Railway**: Go to your Service Variables tab and enter key-value pairs matching `.env.example`.
 - **GitHub Codespaces**: Set Repository Secrets or create a `.env` file in the root directory.
-
 

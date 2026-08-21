@@ -201,6 +201,41 @@ class ConfigStore:
         if os.environ.get("TAVILY_ENABLED"):
             config.tavily.enabled = os.environ["TAVILY_ENABLED"].lower() in ("true", "1", "yes")
 
+        # Mihari public Robinhood Stock Token intelligence overrides
+        if os.environ.get("MIHARI_ENABLED"):
+            config.mihari.enabled = os.environ["MIHARI_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("MIHARI_API_URL"):
+            config.mihari.api_url = os.environ["MIHARI_API_URL"].rstrip("/")
+        if os.environ.get("MIHARI_TIMEOUT_SECONDS"):
+            config.mihari.timeout_seconds = max(1.0, float(os.environ["MIHARI_TIMEOUT_SECONDS"]))
+        if os.environ.get("MIHARI_MAX_SYMBOLS"):
+            config.mihari.max_symbols = max(1, min(10, int(os.environ["MIHARI_MAX_SYMBOLS"])))
+
+        # FRED official macroeconomic data overrides
+        if os.environ.get("FRED_ENABLED"):
+            config.fred.enabled = os.environ["FRED_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("FRED_API_KEY"):
+            config.fred.api_key = os.environ["FRED_API_KEY"]
+        if os.environ.get("FRED_API_URL"):
+            config.fred.api_url = os.environ["FRED_API_URL"].rstrip("/")
+        if os.environ.get("FRED_TIMEOUT_SECONDS"):
+            config.fred.timeout_seconds = max(1.0, float(os.environ["FRED_TIMEOUT_SECONDS"]))
+
+        # Reserved provider configuration. These layers remain disabled until
+        # credentials and production endpoint contracts are supplied.
+        if os.environ.get("PERIGON_ENABLED"):
+            config.perigon.enabled = os.environ["PERIGON_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("PERIGON_API_KEY"):
+            config.perigon.api_key = os.environ["PERIGON_API_KEY"]
+        if os.environ.get("PERIGON_API_URL"):
+            config.perigon.api_url = os.environ["PERIGON_API_URL"].rstrip("/")
+        if os.environ.get("EXA_ENABLED"):
+            config.exa.enabled = os.environ["EXA_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("EXA_API_KEY"):
+            config.exa.api_key = os.environ["EXA_API_KEY"]
+        if os.environ.get("EXA_API_URL"):
+            config.exa.api_url = os.environ["EXA_API_URL"].rstrip("/")
+
         return config
 
     def load_config(self) -> ForecastConfig:
@@ -298,6 +333,32 @@ class ConfigStore:
             config.tavily.enabled = bool(t.get("enabled", config.tavily.enabled))
             config.tavily.api_key = t.get("api_key", config.tavily.api_key)
 
+        if "mihari" in raw:
+            m = raw["mihari"]
+            config.mihari.enabled = bool(m.get("enabled", config.mihari.enabled))
+            config.mihari.api_url = m.get("api_url", config.mihari.api_url)
+            config.mihari.timeout_seconds = float(m.get("timeout_seconds", config.mihari.timeout_seconds))
+            config.mihari.max_symbols = int(m.get("max_symbols", config.mihari.max_symbols))
+
+        if "fred" in raw:
+            f = raw["fred"]
+            config.fred.enabled = bool(f.get("enabled", config.fred.enabled))
+            config.fred.api_key = f.get("api_key", config.fred.api_key)
+            config.fred.api_url = f.get("api_url", config.fred.api_url)
+            config.fred.timeout_seconds = float(f.get("timeout_seconds", config.fred.timeout_seconds))
+
+        if "perigon" in raw:
+            p = raw["perigon"]
+            config.perigon.enabled = bool(p.get("enabled", config.perigon.enabled))
+            config.perigon.api_key = p.get("api_key", config.perigon.api_key)
+            config.perigon.api_url = p.get("api_url", config.perigon.api_url)
+
+        if "exa" in raw:
+            e = raw["exa"]
+            config.exa.enabled = bool(e.get("enabled", config.exa.enabled))
+            config.exa.api_key = e.get("api_key", config.exa.api_key)
+            config.exa.api_url = e.get("api_url", config.exa.api_url)
+
         config.default_provider = raw.get("default_provider", config.default_provider)
         if "fallback_providers" in raw and isinstance(raw["fallback_providers"], list):
             config.fallback_providers = raw["fallback_providers"]
@@ -380,7 +441,29 @@ class ConfigStore:
             "tavily": {
                 "enabled": config.tavily.enabled,
                 "api_key": config.tavily.api_key,
-            }
+            },
+            "mihari": {
+                "enabled": config.mihari.enabled,
+                "api_url": config.mihari.api_url,
+                "timeout_seconds": config.mihari.timeout_seconds,
+                "max_symbols": config.mihari.max_symbols,
+            },
+            "fred": {
+                "enabled": config.fred.enabled,
+                "api_key": config.fred.api_key,
+                "api_url": config.fred.api_url,
+                "timeout_seconds": config.fred.timeout_seconds,
+            },
+            "perigon": {
+                "enabled": config.perigon.enabled,
+                "api_key": config.perigon.api_key,
+                "api_url": config.perigon.api_url,
+            },
+            "exa": {
+                "enabled": config.exa.enabled,
+                "api_key": config.exa.api_key,
+                "api_url": config.exa.api_url,
+            },
         }
         self.save_raw(data)
 

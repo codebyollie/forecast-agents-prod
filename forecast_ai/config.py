@@ -116,6 +116,36 @@ class TavilyConfig:
     api_key: str = ""
 
 @dataclass
+class MihariConfig:
+    """Public Robinhood Stock Token corporate-action intelligence."""
+    enabled: bool = False
+    api_url: str = "https://mihari.pro/api/v1"
+    timeout_seconds: float = 12.0
+    max_symbols: int = 5
+
+@dataclass
+class FredConfig:
+    """Official Federal Reserve economic data for macro-relevant markets."""
+    enabled: bool = False
+    api_key: str = ""
+    api_url: str = "https://api.stlouisfed.org/fred"
+    timeout_seconds: float = 12.0
+
+@dataclass
+class PerigonConfig:
+    """Reserved configuration for the optional structured-news layer."""
+    enabled: bool = False
+    api_key: str = ""
+    api_url: str = "https://api.perigon.io"
+
+@dataclass
+class ExaConfig:
+    """Reserved configuration for the optional deep-web research layer."""
+    enabled: bool = False
+    api_key: str = ""
+    api_url: str = "https://api.exa.ai"
+
+@dataclass
 class SourcesConfig:
     news_api_key: str = ""
     twitter_bearer_token: str = ""
@@ -138,6 +168,10 @@ class ForecastConfig:
     falcon: FalconConfig = field(default_factory=FalconConfig)
     bravado: BravadoConfig = field(default_factory=BravadoConfig)
     tavily: TavilyConfig = field(default_factory=TavilyConfig)
+    mihari: MihariConfig = field(default_factory=MihariConfig)
+    fred: FredConfig = field(default_factory=FredConfig)
+    perigon: PerigonConfig = field(default_factory=PerigonConfig)
+    exa: ExaConfig = field(default_factory=ExaConfig)
     sources: SourcesConfig = field(default_factory=SourcesConfig)
     agents: Dict[str, AgentSettings] = field(default_factory=lambda: {
         "news": AgentSettings(enabled=True, weight=1.2),

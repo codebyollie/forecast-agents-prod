@@ -103,6 +103,9 @@ def filter_runtime_evidence(evidence: List[Evidence], enabled_modules: Optional[
             module = "newsrss"
         elif "blockchain" in source_name or "onchain" in source_name:
             module = "chain-data"
+        elif provider == "mihari" or "mihari" in source_name:
+            # Mihari is platform-managed Robinhood RWA intelligence.
+            module = "chain-data"
         elif source_name in {"polymarket", "kalshi"}:
             module = "markets"
         elif provider == "bravado" or source_name.startswith("bravado"):
@@ -124,7 +127,7 @@ def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List
         "reddit": ("reddit",),
         "research": ("facts_ai", "factsai", "arxiv", "research", "tavily"),
         "macro": ("macro", "cme", "fred", "news", "rss", "facts_ai", "factsai", "tavily"),
-        "onchain": ("blockchain", "onchain", "polygonscan"),
+        "onchain": ("blockchain", "onchain", "polygonscan", "mihari", "rwa"),
         "market": ("kalshi", "polymarket", "market", "robinhood"),
     }
     falcon_types = {

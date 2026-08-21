@@ -52,6 +52,15 @@ def test_bravado_trader_intelligence_is_routed_only_to_market_agent():
     assert _route_evidence_for_agent("onchain", [market, bravado]) == [market]
 
 
+def test_mihari_rwa_intelligence_is_routed_only_to_onchain_agent():
+    market = _evidence("polymarket")
+    mihari = _evidence("Mihari RWA Intelligence", "rwa_intelligence", "Mihari")
+
+    assert _route_evidence_for_agent("onchain", [market, mihari]) == [mihari]
+    assert _route_evidence_for_agent("market", [market, mihari]) == [market]
+    assert _route_evidence_for_agent("macro", [market, mihari]) == [market]
+
+
 @pytest.mark.asyncio
 async def test_falcon_active_status_wins_when_optional_layer_is_unavailable():
     agent = MarketAgent(name="market", provider=DummyProvider(), config=ForecastConfig())
