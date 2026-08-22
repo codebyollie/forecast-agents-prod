@@ -68,8 +68,28 @@ def test_perigon_and_exa_are_routed_to_their_specialist_roles():
     exa = _evidence("Exa Deep Research", "deep_research", "Exa")
 
     assert _route_evidence_for_agent("news", [market, perigon, exa]) == [perigon]
-    assert _route_evidence_for_agent("research", [market, perigon, exa]) == [perigon, exa]
+    assert _route_evidence_for_agent("research", [market, perigon, exa]) == [exa]
     assert _route_evidence_for_agent("market", [market, perigon, exa]) == [market]
+
+
+def test_sec_edgar_is_routed_only_to_the_onchain_agent():
+    market = _evidence("polymarket")
+    sec = _evidence("SEC EDGAR Corporate Events", "rwa_corporate_event", "SEC EDGAR")
+
+    assert _route_evidence_for_agent("onchain", [market, sec]) == [sec]
+    assert _route_evidence_for_agent("market", [market, sec]) == [market]
+
+
+def test_runtime_modules_keep_platform_layers_separate():
+    from forecast_ai.pipelines.forecast import filter_runtime_evidence
+
+    evidence = [
+        _evidence("Perigon News", "structured_news", "Perigon"),
+        _evidence("Exa Deep Research", "deep_research", "Exa"),
+        _evidence("FRED Macro Data", "macro_data", "FRED"),
+        _evidence("SEC EDGAR Corporate Events", "rwa_corporate_event", "SEC EDGAR"),
+    ]
+    assert filter_runtime_evidence(evidence, {"perigon-news", "rwa-intelligence"}) == [evidence[0], evidence[3]]
 
 
 @pytest.mark.asyncio

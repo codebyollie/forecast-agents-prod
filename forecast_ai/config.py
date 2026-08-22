@@ -124,6 +124,16 @@ class MihariConfig:
     max_symbols: int = 5
 
 @dataclass
+class SecEdgarConfig:
+    """Official SEC filings context for Robinhood Stock Token underliers."""
+    enabled: bool = False
+    api_url: str = "https://data.sec.gov"
+    user_agent: str = "Forecast AI research@forai.tech"
+    timeout_seconds: float = 12.0
+    max_symbols: int = 3
+    lookback_days: int = 90
+
+@dataclass
 class FredConfig:
     """Official Federal Reserve economic data for macro-relevant markets."""
     enabled: bool = False
@@ -173,6 +183,7 @@ class ForecastConfig:
     bravado: BravadoConfig = field(default_factory=BravadoConfig)
     tavily: TavilyConfig = field(default_factory=TavilyConfig)
     mihari: MihariConfig = field(default_factory=MihariConfig)
+    sec_edgar: SecEdgarConfig = field(default_factory=SecEdgarConfig)
     fred: FredConfig = field(default_factory=FredConfig)
     perigon: PerigonConfig = field(default_factory=PerigonConfig)
     exa: ExaConfig = field(default_factory=ExaConfig)

@@ -216,6 +216,21 @@ class ForecastAgent(ABC):
                     research_providers.add("Exa")
                     if item.content:
                         provider_insights["Exa Deep Research"] = str(item.content).strip()[:1500]
+            if inferred_provider == "Mihari":
+                merge_provider_status("Mihari", provider_status or "active")
+                if provider_status in ("", "active") and item.content:
+                    research_providers.add("Mihari")
+                    provider_insights["Mihari RWA Intelligence"] = str(item.content).strip()[:1500]
+            if inferred_provider == "SEC EDGAR":
+                merge_provider_status("SEC EDGAR", provider_status or "active")
+                if provider_status in ("", "active") and item.content:
+                    research_providers.add("SEC EDGAR")
+                    provider_insights["SEC Corporate Events"] = str(item.content).strip()[:1500]
+            if inferred_provider == "FRED":
+                merge_provider_status("FRED", provider_status or "active")
+                if provider_status in ("", "active") and item.content:
+                    research_providers.add("FRED")
+                    provider_insights["FRED Macro Data"] = str(item.content).strip()[:1500]
             if item.url and source_type != "summary":
                 add_citation(
                     item.title or item.source_name,

@@ -98,20 +98,21 @@ def filter_runtime_evidence(evidence: List[Evidence], enabled_modules: Optional[
         elif provider == "tavily" or "tavily" in source_name:
             module = "tavily"
         elif provider == "exa" or "exa" in source_name:
-            # Exa is platform-managed deep-web research.
-            module = "tavily"
+            module = "exa-research"
         elif provider == "perigon" or "perigon" in source_name:
-            # Perigon is platform-managed structured news.
-            module = "newsrss"
+            module = "perigon-news"
+        elif provider == "fred" or "fred" in source_name:
+            module = "fred-macro"
         elif provider == "falcon" or source_name.startswith("falcon"):
             module = "falcon-social" if source_type.startswith("social") else "falcon-market"
         elif "news" in source_name or "rss" in source_name:
             module = "newsrss"
         elif "blockchain" in source_name or "onchain" in source_name:
             module = "chain-data"
-        elif provider == "mihari" or "mihari" in source_name:
-            # Mihari is platform-managed Robinhood RWA intelligence.
-            module = "chain-data"
+        elif provider in {"mihari", "sec edgar"} or "mihari" in source_name or "sec edgar" in source_name:
+            # RWA intelligence is platform-managed and applies only to the
+            # onchain specialist when explicitly enabled in Agent Studio.
+            module = "rwa-intelligence"
         elif source_name in {"polymarket", "kalshi"}:
             module = "markets"
         elif provider == "bravado" or source_name.startswith("bravado"):
@@ -131,9 +132,9 @@ def _route_evidence_for_agent(agent_name: str, evidence: List[Evidence]) -> List
         "news": ("news", "rss", "perigon", "facts_ai", "factsai", "tavily"),
         "social": ("twitter", "social"),
         "reddit": ("reddit",),
-        "research": ("facts_ai", "factsai", "arxiv", "research", "tavily", "perigon", "exa"),
+        "research": ("facts_ai", "factsai", "arxiv", "research", "tavily", "exa"),
         "macro": ("macro", "cme", "fred", "news", "rss", "facts_ai", "factsai", "tavily"),
-        "onchain": ("blockchain", "onchain", "polygonscan", "mihari", "rwa"),
+        "onchain": ("blockchain", "onchain", "polygonscan", "mihari", "sec edgar", "rwa"),
         "market": ("kalshi", "polymarket", "market", "robinhood"),
     }
     falcon_types = {

@@ -75,14 +75,17 @@ class PerigonSource(BaseSource):
             return []
 
         article_response = responses[0] if responses and isinstance(responses[0], dict) else {}
-        articles = article_response.get("articles") or article_response.get("data") or []
+        # Perigon has used both articles and results wrappers across API
+        # versions. Accept either shape so an enabled Stories plan cannot turn
+        # valid article responses into empty evidence.
+        articles = article_response.get("articles") or article_response.get("results") or article_response.get("data") or []
         evidence: List[Evidence] = []
         if isinstance(articles, list):
             for article in articles[:limit]:
                 if not isinstance(article, dict):
                     continue
-                title = str(article.get("title") or "Perigon news result")
-                description = str(article.get("description") or article.get("summary") or article.get("content") or "")
+                title = str(article.get("title") or article.get("headline") or article.get("name") or "Perigon news result")
+                description = str(article.get("description") or article.get("summary") or article.get("content") or article.get("body") or "")
                 if not description:
                     continue
                 source = article.get("source") if isinstance(article.get("source"), dict) else {}
@@ -104,7 +107,7 @@ class PerigonSource(BaseSource):
                 ))
 
         if self.stories_enabled and len(responses) > 1 and isinstance(responses[1], dict):
-            stories = responses[1].get("stories") or responses[1].get("data") or []
+            stories = responses[1].get("stories") or responses[1].get("results") or responses[1].get("data") or []
             if isinstance(stories, list):
                 for story in stories[:3]:
                     if not isinstance(story, dict):
@@ -116,7 +119,7 @@ class PerigonSource(BaseSource):
                         source_name="Perigon Story",
                         content=summary[:5000],
                         relevance_score=0.9,
-                        title=str(story.get("title") or "Perigon event cluster"),
+                        title=str(story.get("title") or story.get("headline") or story.get("name") or "Perigon event cluster"),
                         url=str(story.get("url") or ""),
                         metadata={
                             "provider": "Perigon",

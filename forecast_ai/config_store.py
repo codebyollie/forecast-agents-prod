@@ -211,6 +211,20 @@ class ConfigStore:
         if os.environ.get("MIHARI_MAX_SYMBOLS"):
             config.mihari.max_symbols = max(1, min(10, int(os.environ["MIHARI_MAX_SYMBOLS"])))
 
+        # SEC EDGAR official filing context for Robinhood Stock Token underliers.
+        if os.environ.get("SEC_EDGAR_ENABLED"):
+            config.sec_edgar.enabled = os.environ["SEC_EDGAR_ENABLED"].lower() in ("true", "1", "yes")
+        if os.environ.get("SEC_EDGAR_API_URL"):
+            config.sec_edgar.api_url = os.environ["SEC_EDGAR_API_URL"].rstrip("/")
+        if os.environ.get("SEC_EDGAR_USER_AGENT"):
+            config.sec_edgar.user_agent = os.environ["SEC_EDGAR_USER_AGENT"].strip()
+        if os.environ.get("SEC_EDGAR_TIMEOUT_SECONDS"):
+            config.sec_edgar.timeout_seconds = max(1.0, float(os.environ["SEC_EDGAR_TIMEOUT_SECONDS"]))
+        if os.environ.get("SEC_EDGAR_MAX_SYMBOLS"):
+            config.sec_edgar.max_symbols = max(1, min(5, int(os.environ["SEC_EDGAR_MAX_SYMBOLS"])))
+        if os.environ.get("SEC_EDGAR_LOOKBACK_DAYS"):
+            config.sec_edgar.lookback_days = max(1, min(365, int(os.environ["SEC_EDGAR_LOOKBACK_DAYS"])))
+
         # FRED official macroeconomic data overrides
         if os.environ.get("FRED_ENABLED"):
             config.fred.enabled = os.environ["FRED_ENABLED"].lower() in ("true", "1", "yes")
@@ -347,6 +361,15 @@ class ConfigStore:
             config.mihari.timeout_seconds = float(m.get("timeout_seconds", config.mihari.timeout_seconds))
             config.mihari.max_symbols = int(m.get("max_symbols", config.mihari.max_symbols))
 
+        if "sec_edgar" in raw:
+            s = raw["sec_edgar"]
+            config.sec_edgar.enabled = bool(s.get("enabled", config.sec_edgar.enabled))
+            config.sec_edgar.api_url = s.get("api_url", config.sec_edgar.api_url)
+            config.sec_edgar.user_agent = s.get("user_agent", config.sec_edgar.user_agent)
+            config.sec_edgar.timeout_seconds = float(s.get("timeout_seconds", config.sec_edgar.timeout_seconds))
+            config.sec_edgar.max_symbols = int(s.get("max_symbols", config.sec_edgar.max_symbols))
+            config.sec_edgar.lookback_days = int(s.get("lookback_days", config.sec_edgar.lookback_days))
+
         if "fred" in raw:
             f = raw["fred"]
             config.fred.enabled = bool(f.get("enabled", config.fred.enabled))
@@ -458,6 +481,14 @@ class ConfigStore:
                 "api_url": config.mihari.api_url,
                 "timeout_seconds": config.mihari.timeout_seconds,
                 "max_symbols": config.mihari.max_symbols,
+            },
+            "sec_edgar": {
+                "enabled": config.sec_edgar.enabled,
+                "api_url": config.sec_edgar.api_url,
+                "user_agent": config.sec_edgar.user_agent,
+                "timeout_seconds": config.sec_edgar.timeout_seconds,
+                "max_symbols": config.sec_edgar.max_symbols,
+                "lookback_days": config.sec_edgar.lookback_days,
             },
             "fred": {
                 "enabled": config.fred.enabled,

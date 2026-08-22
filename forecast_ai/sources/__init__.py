@@ -10,6 +10,7 @@ from .tavily_search import TavilySearchSource
 from .falcon import FalconSource
 from .bravado import BravadoSource
 from .mihari import MihariSource
+from .sec_edgar import SecEdgarSource
 from .fred import FredSource
 from .perigon import PerigonSource
 from .exa import ExaSource
@@ -88,6 +89,15 @@ class SourceManager:
                 timeout_seconds=config.mihari.timeout_seconds,
                 max_symbols=config.mihari.max_symbols,
             )
+        if getattr(config.sec_edgar, "enabled", False) and getattr(config.sec_edgar, "user_agent", ""):
+            self.sources["sec_edgar"] = SecEdgarSource(
+                api_url=config.sec_edgar.api_url,
+                user_agent=config.sec_edgar.user_agent,
+                enabled=True,
+                timeout_seconds=config.sec_edgar.timeout_seconds,
+                max_symbols=config.sec_edgar.max_symbols,
+                lookback_days=config.sec_edgar.lookback_days,
+            )
         if getattr(config.fred, "enabled", False) and getattr(config.fred, "api_key", ""):
             self.sources["fred"] = FredSource(
                 api_key=config.fred.api_key,
@@ -120,7 +130,10 @@ class SourceManager:
             return cached
 
         try:
-            results = await asyncio.wait_for(source.fetch(query, limit=limit), timeout=15.0)
+            source_timeout = float(getattr(source, "timeout_seconds", 15.0))
+            # Honour the provider-level timeout. This is particularly important
+            # for Exa deep modes and Perigon story clusters.
+            results = await asyncio.wait_for(source.fetch(query, limit=limit), timeout=source_timeout + 2.0)
             if results:
                 self.cache.set(name, query, results)
             return results
@@ -429,6 +442,7 @@ __all__ = [
     "FalconSource",
     "BravadoSource",
     "MihariSource",
+    "SecEdgarSource",
     "FredSource",
     "PerigonSource",
     "ExaSource",
