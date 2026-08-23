@@ -6,6 +6,8 @@ import os
 import time
 import secrets
 import asyncio
+import logging
+import re
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -16,6 +18,7 @@ from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
 from ..proof.publisher import ProofPublisher, get_proof_publisher_status
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Global reference to pipeline, will be set during server init
 _pipeline: Optional[ForecastPipeline] = None
@@ -120,6 +123,72 @@ def _rwa_market_matches(asset: Dict[str, Any], markets: List[Dict[str, Any]]) ->
         elif meaningful_name_parts and sum(part in lowered for part in meaningful_name_parts) >= min(2, len(meaningful_name_parts)):
             matches.append(market)
     return matches[:6]
+
+
+_RWA_EVENT_TOPICS: Dict[str, Dict[str, str]] = {
+    # These are intentionally broad, transparent event themes. They are not
+    # presented as direct company-market matches.
+    "JNJ": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
+    "LLY": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
+    "PFE": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
+    "MRNA": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
+    "UNH": {"query": "healthcare policy Medicare", "reason": "Healthcare policy exposure"},
+    "IONQ": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure"},
+    "RGTI": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure"},
+    "QBTS": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure"},
+    "NVDA": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
+    "AMD": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
+    "AVGO": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
+    "INTC": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
+    "KLAC": {"query": "semiconductors tariffs China", "reason": "Semiconductor-cycle and trade-policy exposure"},
+    "ASML": {"query": "semiconductors China export controls", "reason": "Semiconductor-cycle and trade-policy exposure"},
+    "MU": {"query": "semiconductors artificial intelligence", "reason": "AI and semiconductor exposure"},
+    "JBL": {"query": "semiconductors tariffs manufacturing", "reason": "Electronics manufacturing and trade exposure"},
+    "AAPL": {"query": "Apple tariffs China", "reason": "Consumer hardware and China exposure"},
+    "TSLA": {"query": "electric vehicles tariffs China", "reason": "Electric-vehicle and trade exposure"},
+    "RIVN": {"query": "electric vehicles tariffs", "reason": "Electric-vehicle exposure"},
+    "JOBY": {"query": "aviation FAA electric aircraft", "reason": "Aviation and regulatory exposure"},
+    "BA": {"query": "Boeing FAA aviation", "reason": "Aviation and regulatory exposure"},
+    "COIN": {"query": "bitcoin cryptocurrency regulation", "reason": "Crypto-market and regulatory exposure"},
+    "MSTR": {"query": "bitcoin cryptocurrency", "reason": "Bitcoin exposure"},
+    "IREN": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure"},
+    "MARA": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure"},
+    "RIOT": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure"},
+    "XOM": {"query": "oil OPEC energy", "reason": "Oil and energy exposure"},
+    "CVX": {"query": "oil OPEC energy", "reason": "Oil and energy exposure"},
+    "JPM": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure"},
+    "BAC": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure"},
+    "GS": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure"},
+}
+
+
+def _rwa_related_event_topic(asset: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Return a clearly labelled thematic search, never a claimed direct link."""
+    symbol = str(asset.get("tokenSymbol") or "").upper()
+    return _RWA_EVENT_TOPICS.get(symbol)
+
+
+def _rwa_related_market_candidates(
+    markets: List[Dict[str, Any]],
+    direct_market_ids: set[str],
+    topic: Optional[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    if not topic:
+        return []
+    candidates: List[Dict[str, Any]] = []
+    seen = set(direct_market_ids)
+    for market in markets:
+        market_id = str(market.get("market_id") or market.get("slug") or "")
+        if not market_id or market_id in seen:
+            continue
+        candidate = dict(market)
+        candidate["match_type"] = "thematic_candidate"
+        candidate["match_reason"] = topic["reason"]
+        candidates.append(candidate)
+        seen.add(market_id)
+        if len(candidates) >= 6:
+            break
+    return candidates
 
 AGENT_METADATA = [
     {"id": "news", "name": "News Agent", "icon": "ti-news", "color": "blue"},
@@ -242,7 +311,7 @@ async def search_markets(
 async def browse_rwa_assets(
     request: Request,
     q: Optional[str] = Query(None, description="Stock Token symbol or company name"),
-    limit: int = Query(48, ge=1, le=100),
+    limit: int = Query(48, ge=1, le=250),
     offset: int = Query(0, ge=0),
     stock_tokens: RobinhoodStockTokenClient = Depends(get_stock_token_client),
 ) -> Dict[str, Any]:
@@ -280,15 +349,42 @@ async def rwa_asset_detail(
         raise HTTPException(status_code=404, detail=f"Stock Token '{symbol.upper()}' was not found.")
 
     display_name = RobinhoodStockTokenClient.display_name(asset)
-    quote_task = stock_tokens.quote(symbol)
-    markets_task = search_service.search_markets(query=display_name, limit=20)
-    quote_result, markets_result = await asyncio.gather(quote_task, markets_task, return_exceptions=True)
-    quote = quote_result if isinstance(quote_result, dict) else None
-    markets = markets_result if isinstance(markets_result, list) else []
+    normalized_symbol = str(asset.get("tokenSymbol") or symbol).upper()
+    warnings: List[str] = []
+
+    async def safe_quote() -> Optional[Dict[str, Any]]:
+        try:
+            return await asyncio.wait_for(stock_tokens.quote(normalized_symbol), timeout=12)
+        except Exception as exc:
+            logger.warning("RWA quote unavailable for %s: %s", normalized_symbol, exc)
+            warnings.append("Live Robinhood quote is temporarily unavailable.")
+            return None
+
+    async def safe_market_search(query: str, label: str) -> List[Dict[str, Any]]:
+        try:
+            return await asyncio.wait_for(search_service.search_markets(query=query, limit=20), timeout=12)
+        except Exception as exc:
+            logger.warning("RWA %s market search unavailable for %s: %s", label, normalized_symbol, exc)
+            warnings.append("Prediction-market context is temporarily unavailable.")
+            return []
+
+    topic = _rwa_related_event_topic(asset)
+    direct_query = f"{display_name} {normalized_symbol}"
+    quote_task = asyncio.create_task(safe_quote())
+    direct_task = asyncio.create_task(safe_market_search(direct_query, "direct"))
+    topic_task = asyncio.create_task(safe_market_search(topic["query"], "thematic")) if topic else None
+    quote, direct_results = await asyncio.gather(quote_task, direct_task)
+    thematic_results = await topic_task if topic_task else []
+    direct_markets = _rwa_market_matches(asset, direct_results)
+    direct_market_ids = {str(market.get("market_id") or market.get("slug") or "") for market in direct_markets}
+    related_markets = _rwa_related_market_candidates(thematic_results, direct_market_ids, topic)
     return {
         "asset": RobinhoodStockTokenClient.public_asset(asset, quote),
-        "prediction_markets": _rwa_market_matches(asset, markets),
+        "prediction_markets": direct_markets,
+        "related_prediction_markets": related_markets,
         "market_match_method": "direct symbol or company-name text match",
+        "related_market_method": "thematic candidate, not a direct company-market match" if topic else None,
+        "warnings": list(dict.fromkeys(warnings)),
         "source": "Robinhood Chain Stock Token APIs",
     }
 

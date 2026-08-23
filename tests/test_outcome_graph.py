@@ -2,6 +2,7 @@ import pytest
 
 from forecast_ai.services.outcome_graph import OutcomeGraphService, similarity
 from forecast_ai.services.robinhood_stock_tokens import RobinhoodStockTokenClient
+from forecast_ai.api.routes import _rwa_market_matches, _rwa_related_event_topic, _rwa_related_market_candidates
 
 
 class FakeSearch:
@@ -96,3 +97,25 @@ async def test_stock_token_matching_uses_explicit_ticker_for_any_catalog_asset(m
 
     monkeypatch.setattr(client, "assets", fake_assets)
     assert await client.matching_symbols("What could affect Pfizer (PFE) over the next quarter?") == ["PFE"]
+
+
+def test_rwa_market_matching_supports_direct_ticker_matches():
+    asset = {"tokenSymbol": "JNJ", "tokenName": "Johnson & Johnson • Robinhood Token"}
+    markets = [
+        {"market_id": "direct", "question": "Will JNJ announce a spinout this year?"},
+        {"market_id": "other", "question": "Will inflation fall this year?"},
+    ]
+    assert [market["market_id"] for market in _rwa_market_matches(asset, markets)] == ["direct"]
+
+
+def test_rwa_related_candidates_are_labelled_and_never_replace_direct_matches():
+    asset = {"tokenSymbol": "JNJ"}
+    topic = _rwa_related_event_topic(asset)
+    candidates = _rwa_related_market_candidates(
+        [{"market_id": "health", "question": "Will an FDA drug approval happen this quarter?"}],
+        {"direct"},
+        topic,
+    )
+    assert topic and topic["reason"] == "Healthcare and drug-approval exposure"
+    assert candidates[0]["match_type"] == "thematic_candidate"
+    assert candidates[0]["match_reason"] == topic["reason"]
