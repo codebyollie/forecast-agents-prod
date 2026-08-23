@@ -5,12 +5,14 @@ API Routes for Forecast AI API Server.
 import os
 import time
 import secrets
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from ..pipelines.forecast import ForecastPipeline
 from ..polymarket.gamma import GammaClient
 from ..services.market_search import MarketSearchService
+from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
 from ..proof.publisher import ProofPublisher, get_proof_publisher_status
 
 router = APIRouter()
@@ -18,6 +20,7 @@ router = APIRouter()
 # Global reference to pipeline, will be set during server init
 _pipeline: Optional[ForecastPipeline] = None
 _proof_publisher: Optional[ProofPublisher] = None
+_stock_tokens: Optional[RobinhoodStockTokenClient] = None
 
 _IP_RATE_LIMITS: Dict[str, List[float]] = {}
 MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_RATE_LIMIT_PER_HOUR", "50")))
@@ -89,6 +92,33 @@ def get_search_service(pipeline: ForecastPipeline = Depends(get_pipeline)) -> Ma
         kalshi_base_url=pipeline.config.kalshi.api_base_url,
         gamma_api_url=pipeline.config.polymarket.gamma_api_url
     )
+
+
+def get_stock_token_client(pipeline: ForecastPipeline = Depends(get_pipeline)) -> RobinhoodStockTokenClient:
+    """Return the shared read-only Robinhood Stock Token client."""
+    global _stock_tokens
+    if not getattr(pipeline.config.robinhood_chain, "stock_tokens_enabled", False):
+        raise HTTPException(status_code=503, detail="Robinhood Stock Token intelligence is disabled.")
+    configured_url = getattr(pipeline.config.robinhood_chain, "stock_token_api_url", "")
+    if _stock_tokens is None or _stock_tokens.base_url != configured_url.rstrip("/"):
+        _stock_tokens = RobinhoodStockTokenClient(base_url=configured_url)
+    return _stock_tokens
+
+
+def _rwa_market_matches(asset: Dict[str, Any], markets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep only transparent text matches. An empty result is better than a guess."""
+    symbol = str(asset.get("tokenSymbol") or "").lower()
+    name = RobinhoodStockTokenClient.display_name(asset).lower()
+    meaningful_name_parts = [part for part in name.replace("-", " ").split() if len(part) > 3]
+    matches: List[Dict[str, Any]] = []
+    for market in markets:
+        question = str(market.get("question") or market.get("title") or "")
+        lowered = question.lower()
+        if symbol and re.search(rf"(?<![a-z0-9]){re.escape(symbol)}(?![a-z0-9])", lowered):
+            matches.append(market)
+        elif meaningful_name_parts and sum(part in lowered for part in meaningful_name_parts) >= min(2, len(meaningful_name_parts)):
+            matches.append(market)
+    return matches[:6]
 
 AGENT_METADATA = [
     {"id": "news", "name": "News Agent", "icon": "ti-news", "color": "blue"},
@@ -205,6 +235,61 @@ async def search_markets(
     """
     enforce_request_access(request)
     return await search_service.search_markets(query=q, limit=limit)
+
+
+@router.get("/rwa/assets")
+async def browse_rwa_assets(
+    request: Request,
+    q: Optional[str] = Query(None, description="Stock Token symbol or company name"),
+    limit: int = Query(48, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    stock_tokens: RobinhoodStockTokenClient = Depends(get_stock_token_client),
+) -> Dict[str, Any]:
+    """Browse the canonical Robinhood Chain Stock Token catalog without quotes."""
+    enforce_request_access(request)
+    assets = await stock_tokens.assets()
+    query = (q or "").strip().lower()
+    visible = [
+        asset for asset in assets
+        if isinstance(asset, dict)
+        and (not query or query in str(asset.get("tokenSymbol") or "").lower() or query in RobinhoodStockTokenClient.display_name(asset).lower())
+    ]
+    visible.sort(key=lambda item: str(item.get("tokenSymbol") or ""))
+    page = visible[offset: offset + limit]
+    return {
+        "assets": [RobinhoodStockTokenClient.public_asset(asset) for asset in page],
+        "total": len(visible),
+        "offset": offset,
+        "limit": limit,
+        "source": "Robinhood Chain Stock Token APIs",
+    }
+
+
+@router.get("/rwa/assets/{symbol}")
+async def rwa_asset_detail(
+    symbol: str,
+    request: Request,
+    stock_tokens: RobinhoodStockTokenClient = Depends(get_stock_token_client),
+    search_service: MarketSearchService = Depends(get_search_service),
+) -> Dict[str, Any]:
+    """Return one Stock Token with its live quote and transparently matched market context."""
+    enforce_request_access(request)
+    asset = await stock_tokens.asset(symbol)
+    if asset is None:
+        raise HTTPException(status_code=404, detail=f"Stock Token '{symbol.upper()}' was not found.")
+
+    display_name = RobinhoodStockTokenClient.display_name(asset)
+    quote_task = stock_tokens.quote(symbol)
+    markets_task = search_service.search_markets(query=display_name, limit=20)
+    quote_result, markets_result = await asyncio.gather(quote_task, markets_task, return_exceptions=True)
+    quote = quote_result if isinstance(quote_result, dict) else None
+    markets = markets_result if isinstance(markets_result, list) else []
+    return {
+        "asset": RobinhoodStockTokenClient.public_asset(asset, quote),
+        "prediction_markets": _rwa_market_matches(asset, markets),
+        "market_match_method": "direct symbol or company-name text match",
+        "source": "Robinhood Chain Stock Token APIs",
+    }
 
 @router.post("/predict")
 async def predict(

@@ -14,6 +14,7 @@ from ..pipelines.forecast import ForecastPipeline
 from ..config import ForecastConfig
 from ..config_store import ConfigStore
 from ..proof.publisher import ProofPublisher
+from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ class ApiServer:
         # Set pipeline reference in routes
         routes._pipeline = self.pipeline
         routes._proof_publisher = self.proof_publisher
+        routes._stock_tokens = RobinhoodStockTokenClient(
+            base_url=self.config.robinhood_chain.stock_token_api_url,
+        )
         self.app.include_router(routes.router)
 
         @self.app.on_event("startup")

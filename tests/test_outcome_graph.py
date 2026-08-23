@@ -67,3 +67,18 @@ def test_rwa_theme_matching_uses_whole_words():
     assert RobinhoodStockTokenClient.related_symbols("Will AI investment grow?") == [
         "NVDA", "MSFT", "GOOGL", "META"
     ]
+
+
+def test_stock_token_public_asset_hides_unneeded_upstream_shape():
+    asset = {
+        "tokenSymbol": "NVDA",
+        "tokenName": "NVIDIA • Robinhood Token",
+        "status": "ASSET_STATUS_ACTIVE",
+        "logoUrl": "https://example.com/nvda.png",
+        "currentMultiplier": "1.0",
+        "deployments": [{"contractAddress": "0xabc", "chainId": 4663, "networkName": "Robinhood Chain"}],
+    }
+    public = RobinhoodStockTokenClient.public_asset(asset, {"bid": "100", "ask": "101"})
+    assert public["name"] == "NVIDIA"
+    assert public["contract_address"] == "0xabc"
+    assert public["quote"]["ask"] == "101"

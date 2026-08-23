@@ -66,6 +66,55 @@ class RobinhoodStockTokenClient:
             return quote
         return None
 
+    async def asset(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Return one canonical Robinhood Stock Token asset by its token symbol."""
+        normalized = symbol.strip().upper()
+        if not normalized:
+            return None
+        assets = await self.assets()
+        for item in assets:
+            if str(item.get("tokenSymbol") or "").upper() == normalized:
+                return item
+        return None
+
+    @staticmethod
+    def display_name(asset: Dict[str, Any]) -> str:
+        """Remove the API's product suffix without changing its canonical name."""
+        raw = str(asset.get("tokenName") or asset.get("tokenSymbol") or "Stock Token")
+        return raw.replace(" • Robinhood Token", "").strip()
+
+    @classmethod
+    def public_asset(cls, asset: Dict[str, Any], quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Return a browser-safe, normalized Stock Token payload."""
+        deployments = asset.get("deployments") if isinstance(asset.get("deployments"), list) else []
+        primary_deployment = deployments[0] if deployments else {}
+        quote = quote or {}
+        return {
+            "symbol": str(asset.get("tokenSymbol") or "").upper(),
+            "name": cls.display_name(asset),
+            "canonical_name": asset.get("tokenName"),
+            "status": asset.get("status"),
+            "logo_url": asset.get("logoUrl"),
+            "current_multiplier": asset.get("currentMultiplier"),
+            "pending_multiplier": asset.get("pendingMultiplier") or None,
+            "token_decimals": asset.get("tokenDecimals"),
+            "isin": asset.get("isin"),
+            "contract_address": primary_deployment.get("contractAddress"),
+            "chain_id": primary_deployment.get("chainId"),
+            "network_name": primary_deployment.get("networkName") or "Robinhood Chain",
+            "trading_capabilities": asset.get("tradingCapabilities") or {},
+            "quote": {
+                "bid": quote.get("bid"),
+                "ask": quote.get("ask"),
+                "currency": quote.get("currency") or "USD",
+                "daily_high": quote.get("dailyHigh"),
+                "daily_low": quote.get("dailyLow"),
+                "daily_trading_volume": quote.get("dailyTradingVolume"),
+                "is_trading_halt": quote.get("isTradingHalt"),
+                "generated_at": quote.get("generatedAt"),
+            },
+        }
+
     @staticmethod
     def related_symbols(question: str) -> List[str]:
         lowered = question.lower()
