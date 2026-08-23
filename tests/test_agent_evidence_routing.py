@@ -92,6 +92,13 @@ def test_runtime_modules_keep_platform_layers_separate():
     assert filter_runtime_evidence(evidence, {"perigon-news", "rwa-intelligence"}) == [evidence[0], evidence[3]]
 
 
+def test_rwa_mode_source_allowlist_excludes_mihari():
+    from forecast_ai.pipelines.forecast import RWA_ALLOWED_SOURCES
+
+    assert "mihari" not in RWA_ALLOWED_SOURCES
+    assert {"sec_edgar", "fred", "perigon", "exa", "tavily", "twitter"}.issubset(RWA_ALLOWED_SOURCES)
+
+
 @pytest.mark.asyncio
 async def test_falcon_active_status_wins_when_optional_layer_is_unavailable():
     agent = MarketAgent(name="market", provider=DummyProvider(), config=ForecastConfig())

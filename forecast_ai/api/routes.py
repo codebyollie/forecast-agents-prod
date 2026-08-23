@@ -70,6 +70,7 @@ class PredictionRequest(BaseModel):
     category: Optional[str] = None
     market_closes_at: Optional[str] = None
     agent_runtime: Optional[Dict[str, Any]] = None
+    analysis_mode: Optional[str] = None
 
 class CalibrateRequest(BaseModel):
     agent_name: str
@@ -311,6 +312,7 @@ async def predict(
             category=req.category,
             market_closes_at=req.market_closes_at,
             agent_runtime=req.agent_runtime,
+            analysis_mode=req.analysis_mode,
         )
         agent_breakdown = [
             {
@@ -355,6 +357,7 @@ async def predict(
             "outcome_graph": result.metadata.get("outcome_graph", {}),
             "proof": result.metadata.get("proof", {}),
             "agent_runtime": result.metadata.get("agent_runtime"),
+            "analysis_mode": result.metadata.get("analysis_mode"),
             "timestamp": result.timestamp.isoformat(),
             "agent_breakdown": agent_breakdown,
             "individual_predictions": agent_breakdown,

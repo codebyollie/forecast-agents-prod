@@ -32,6 +32,15 @@ SPECIALIST_AGENT_MAP = {
     "risk-challenger": "macro",
 }
 
+# The RWA vertical deliberately does not use Mihari. It combines primary
+# corporate records, macro data, live research and social context instead.
+# Bravado and Falcon are added by SourceManager when a real linked market is
+# selected, where their market identifiers can be verified.
+RWA_ALLOWED_SOURCES = {
+    "news", "rss", "twitter", "reddit", "blockchain", "kalshi",
+    "tavily", "sec_edgar", "fred", "perigon", "exa",
+}
+
 
 def normalize_agent_runtime(value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Validate the server-supplied Agent Studio runtime before using it."""
@@ -241,17 +250,22 @@ class ForecastPipeline:
         category: Optional[str] = None,
         market_closes_at: Optional[str] = None,
         agent_runtime: Optional[Dict[str, Any]] = None,
+        analysis_mode: Optional[str] = None,
     ) -> ForecastResult:
         """
         Orchestrates full forecasting process.
         """
         runtime = normalize_agent_runtime(agent_runtime)
+        normalized_mode = str(analysis_mode or "").strip().lower()
+        if normalized_mode not in {"", "rwa"}:
+            raise ValueError("Unsupported analysis mode.")
 
         # 1. Gather evidence
         evidence = await self.source_manager.gather_evidence(
             question,
             market_id=market_id,
             venue=venue,
+            allowed_sources=RWA_ALLOWED_SOURCES if normalized_mode == "rwa" else None,
         )
 
         # FactsAI is a paid partner source. Fetch it once per forecast and share
@@ -388,6 +402,8 @@ class ForecastPipeline:
         result.metadata["venue"] = venue
         result.metadata["category"] = category or "Other"
         result.metadata["market_closes_at"] = market_closes_at
+        if normalized_mode:
+            result.metadata["analysis_mode"] = normalized_mode
         if runtime:
             result.metadata["agent_runtime"] = {
                 "id": runtime["id"],

@@ -147,6 +147,7 @@ class SourceManager:
         limit: int = 5,
         market_id: Optional[str] = None,
         venue: Optional[str] = None,
+        allowed_sources: Optional[set[str]] = None,
     ) -> List[Evidence]:
         """
         Gathers evidence from all configured and enabled sources.
@@ -162,6 +163,8 @@ class SourceManager:
         else:
             market_evidence = []
         for name, source in self.sources.items():
+            if allowed_sources is not None and name not in allowed_sources:
+                continue
             tasks.append(
                 asyncio.create_task(self._fetch_single_source(name, source, query, limit))
             )
