@@ -128,37 +128,37 @@ def _rwa_market_matches(asset: Dict[str, Any], markets: List[Dict[str, Any]]) ->
 _RWA_EVENT_TOPICS: Dict[str, Dict[str, str]] = {
     # These are intentionally broad, transparent event themes. They are not
     # presented as direct company-market matches.
-    "JNJ": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
-    "LLY": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
-    "PFE": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
-    "MRNA": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure"},
-    "UNH": {"query": "healthcare policy Medicare", "reason": "Healthcare policy exposure"},
-    "IONQ": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure"},
-    "RGTI": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure"},
-    "QBTS": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure"},
-    "NVDA": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
-    "AMD": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
-    "AVGO": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
-    "INTC": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure"},
-    "KLAC": {"query": "semiconductors tariffs China", "reason": "Semiconductor-cycle and trade-policy exposure"},
-    "ASML": {"query": "semiconductors China export controls", "reason": "Semiconductor-cycle and trade-policy exposure"},
-    "MU": {"query": "semiconductors artificial intelligence", "reason": "AI and semiconductor exposure"},
-    "JBL": {"query": "semiconductors tariffs manufacturing", "reason": "Electronics manufacturing and trade exposure"},
-    "AAPL": {"query": "Apple tariffs China", "reason": "Consumer hardware and China exposure"},
-    "TSLA": {"query": "electric vehicles tariffs China", "reason": "Electric-vehicle and trade exposure"},
-    "RIVN": {"query": "electric vehicles tariffs", "reason": "Electric-vehicle exposure"},
-    "JOBY": {"query": "aviation FAA electric aircraft", "reason": "Aviation and regulatory exposure"},
-    "BA": {"query": "Boeing FAA aviation", "reason": "Aviation and regulatory exposure"},
-    "COIN": {"query": "bitcoin cryptocurrency regulation", "reason": "Crypto-market and regulatory exposure"},
-    "MSTR": {"query": "bitcoin cryptocurrency", "reason": "Bitcoin exposure"},
-    "IREN": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure"},
-    "MARA": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure"},
-    "RIOT": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure"},
-    "XOM": {"query": "oil OPEC energy", "reason": "Oil and energy exposure"},
-    "CVX": {"query": "oil OPEC energy", "reason": "Oil and energy exposure"},
-    "JPM": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure"},
-    "BAC": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure"},
-    "GS": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure"},
+    "JNJ": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure", "terms": "fda|drug|healthcare"},
+    "LLY": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure", "terms": "fda|drug|healthcare"},
+    "PFE": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure", "terms": "fda|drug|healthcare"},
+    "MRNA": {"query": "FDA drug approval healthcare", "reason": "Healthcare and drug-approval exposure", "terms": "fda|drug|healthcare"},
+    "UNH": {"query": "healthcare policy Medicare", "reason": "Healthcare policy exposure", "terms": "healthcare|medicare"},
+    "IONQ": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure", "terms": "quantum"},
+    "RGTI": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure", "terms": "quantum"},
+    "QBTS": {"query": "quantum computing artificial intelligence", "reason": "Quantum-computing and AI exposure", "terms": "quantum"},
+    "NVDA": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure", "terms": "semiconductor|chip"},
+    "AMD": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure", "terms": "semiconductor|chip"},
+    "AVGO": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure", "terms": "semiconductor|chip"},
+    "INTC": {"query": "artificial intelligence semiconductors", "reason": "AI and semiconductor exposure", "terms": "semiconductor|chip"},
+    "KLAC": {"query": "semiconductors tariffs China", "reason": "Semiconductor-cycle and trade-policy exposure", "terms": "semiconductor|chip|tariff"},
+    "ASML": {"query": "semiconductors China export controls", "reason": "Semiconductor-cycle and trade-policy exposure", "terms": "semiconductor|chip|export controls"},
+    "MU": {"query": "semiconductors artificial intelligence", "reason": "AI and semiconductor exposure", "terms": "semiconductor|chip"},
+    "JBL": {"query": "semiconductors tariffs manufacturing", "reason": "Electronics manufacturing and trade exposure", "terms": "semiconductor|chip|tariff|manufacturing"},
+    "AAPL": {"query": "Apple tariffs China", "reason": "Consumer hardware and China exposure", "terms": "apple|tariff"},
+    "TSLA": {"query": "electric vehicles tariffs China", "reason": "Electric-vehicle and trade exposure", "terms": "electric vehicle|tesla|tariff"},
+    "RIVN": {"query": "electric vehicles tariffs", "reason": "Electric-vehicle exposure", "terms": "electric vehicle|rivian|tariff"},
+    "JOBY": {"query": "aviation FAA electric aircraft", "reason": "Aviation and regulatory exposure", "terms": "aviation|faa|aircraft|joby"},
+    "BA": {"query": "Boeing FAA aviation", "reason": "Aviation and regulatory exposure", "terms": "aviation|faa|aircraft|boeing"},
+    "COIN": {"query": "bitcoin cryptocurrency regulation", "reason": "Crypto-market and regulatory exposure", "terms": "bitcoin|crypto|cryptocurrency"},
+    "MSTR": {"query": "bitcoin cryptocurrency", "reason": "Bitcoin exposure", "terms": "bitcoin|crypto|cryptocurrency"},
+    "IREN": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure", "terms": "bitcoin|crypto|cryptocurrency|mining"},
+    "MARA": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure", "terms": "bitcoin|crypto|cryptocurrency|mining"},
+    "RIOT": {"query": "bitcoin cryptocurrency mining", "reason": "Bitcoin-mining exposure", "terms": "bitcoin|crypto|cryptocurrency|mining"},
+    "XOM": {"query": "oil OPEC energy", "reason": "Oil and energy exposure", "terms": "oil|opec|energy"},
+    "CVX": {"query": "oil OPEC energy", "reason": "Oil and energy exposure", "terms": "oil|opec|energy"},
+    "JPM": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure", "terms": "federal reserve|interest rate|banking"},
+    "BAC": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure", "terms": "federal reserve|interest rate|banking"},
+    "GS": {"query": "Federal Reserve interest rates banking", "reason": "Interest-rate and banking exposure", "terms": "federal reserve|interest rate|banking"},
 }
 
 
@@ -177,9 +177,13 @@ def _rwa_related_market_candidates(
         return []
     candidates: List[Dict[str, Any]] = []
     seen = set(direct_market_ids)
+    terms = [term.strip().lower() for term in str(topic.get("terms") or "").split("|") if term.strip()]
     for market in markets:
         market_id = str(market.get("market_id") or market.get("slug") or "")
         if not market_id or market_id in seen:
+            continue
+        question = str(market.get("question") or market.get("title") or "").lower()
+        if terms and not any(term in question for term in terms):
             continue
         candidate = dict(market)
         candidate["match_type"] = "thematic_candidate"
