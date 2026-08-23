@@ -82,3 +82,17 @@ def test_stock_token_public_asset_hides_unneeded_upstream_shape():
     assert public["name"] == "NVIDIA"
     assert public["contract_address"] == "0xabc"
     assert public["quote"]["ask"] == "101"
+
+
+@pytest.mark.asyncio
+async def test_stock_token_matching_uses_explicit_ticker_for_any_catalog_asset(monkeypatch):
+    client = RobinhoodStockTokenClient()
+
+    async def fake_assets():
+        return [
+            {"tokenSymbol": "PFE", "tokenName": "Pfizer • Robinhood Token"},
+            {"tokenSymbol": "NVDA", "tokenName": "NVIDIA • Robinhood Token"},
+        ]
+
+    monkeypatch.setattr(client, "assets", fake_assets)
+    assert await client.matching_symbols("What could affect Pfizer (PFE) over the next quarter?") == ["PFE"]

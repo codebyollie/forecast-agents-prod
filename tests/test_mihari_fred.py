@@ -11,6 +11,7 @@ from forecast_ai.sources.mihari import MihariSource
 @pytest.mark.asyncio
 async def test_mihari_returns_rwa_context_for_matching_theme_symbols():
     source = MihariSource(enabled=True)
+    source.stock_tokens.matching_symbols = AsyncMock(return_value=["NVDA", "MSFT", "GOOGL", "META"])
     response = Mock()
     response.raise_for_status = Mock()
     response.json.return_value = {

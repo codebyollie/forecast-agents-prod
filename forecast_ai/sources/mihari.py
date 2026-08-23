@@ -37,12 +37,17 @@ class MihariSource(BaseSource):
         self.enabled = enabled
         self.timeout_seconds = timeout_seconds
         self.max_symbols = max(1, min(max_symbols, 10))
+        self.stock_tokens = RobinhoodStockTokenClient()
 
     async def fetch(self, query: str, limit: int = 5) -> List[Evidence]:
         if not self.enabled:
             return []
 
-        symbols = RobinhoodStockTokenClient.related_symbols(query)[: self.max_symbols]
+        try:
+            symbols = await self.stock_tokens.matching_symbols(query, limit=self.max_symbols)
+        except Exception as exc:
+            logger.warning("[MihariSource] Stock Token catalog request failed: %s", exc)
+            return []
         if not symbols:
             return []
 

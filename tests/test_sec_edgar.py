@@ -8,6 +8,7 @@ from forecast_ai.sources.sec_edgar import SecEdgarSource
 @pytest.mark.asyncio
 async def test_sec_edgar_returns_recent_material_filing_for_rwa_symbol():
     source = SecEdgarSource(enabled=True, user_agent="Forecast AI contact@forai.tech", lookback_days=365)
+    source.stock_tokens.matching_symbols = AsyncMock(return_value=["NVDA"])
     ticker_response = Mock()
     ticker_response.raise_for_status = Mock()
     ticker_response.json.return_value = {"0": {"ticker": "NVDA", "cik_str": 1045810}}

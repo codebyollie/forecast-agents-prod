@@ -125,11 +125,37 @@ class RobinhoodStockTokenClient:
                 symbols.extend(candidates)
         return list(dict.fromkeys(symbols))[:5]
 
+    async def matching_symbols(self, question: str, limit: int = 5) -> List[str]:
+        """Match explicit Stock Token names/tickers first, then known thematic baskets.
+
+        This lets an RWA asset brief for any catalog symbol carry its own
+        context into the Onchain, SEC and Mihari layers without pretending that
+        a semantic theme match is a direct relationship.
+        """
+        lowered = question.lower()
+        assets = await self.assets()
+        explicit: List[str] = []
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            symbol = str(asset.get("tokenSymbol") or "").upper().strip()
+            name = self.display_name(asset).lower()
+            ticker_match = len(symbol) >= 2 and bool(
+                re.search(rf"(?<![a-z0-9]){re.escape(symbol.lower())}(?![a-z0-9])", lowered)
+            )
+            name_match = len(name) >= 4 and bool(
+                re.search(rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", lowered)
+            )
+            if symbol and (ticker_match or name_match):
+                explicit.append(symbol)
+        thematic = self.related_symbols(question)
+        return list(dict.fromkeys([*explicit, *thematic]))[:max(1, limit)]
+
     async def related_assets(self, question: str) -> List[Dict[str, Any]]:
-        requested = self.related_symbols(question)
+        assets = await self.assets()
+        requested = await self.matching_symbols(question)
         if not requested:
             return []
-        assets = await self.assets()
         by_symbol = {
             str(item.get("tokenSymbol") or "").upper(): item
             for item in assets

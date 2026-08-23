@@ -53,6 +53,7 @@ class SecEdgarSource(BaseSource):
         self.lookback_days = max(1, min(lookback_days, 365))
         self._tickers: Dict[str, str] = {}
         self._tickers_loaded_at = 0.0
+        self.stock_tokens = RobinhoodStockTokenClient()
 
     @property
     def _headers(self) -> Dict[str, str]:
@@ -155,7 +156,11 @@ class SecEdgarSource(BaseSource):
     async def fetch(self, query: str, limit: int = 5) -> List[Evidence]:
         if not self.enabled or not self.user_agent:
             return []
-        symbols = RobinhoodStockTokenClient.related_symbols(query)[: self.max_symbols]
+        try:
+            symbols = await self.stock_tokens.matching_symbols(query, limit=self.max_symbols)
+        except Exception as exc:
+            logger.warning("[SecEdgarSource] Stock Token catalog request failed: %s", exc)
+            return []
         if not symbols:
             return []
         try:
