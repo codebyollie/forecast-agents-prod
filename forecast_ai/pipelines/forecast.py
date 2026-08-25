@@ -251,6 +251,8 @@ class ForecastPipeline:
         market_closes_at: Optional[str] = None,
         agent_runtime: Optional[Dict[str, Any]] = None,
         analysis_mode: Optional[str] = None,
+        context_market_id: Optional[str] = None,
+        context_venue: Optional[str] = None,
     ) -> ForecastResult:
         """
         Orchestrates full forecasting process.
@@ -261,10 +263,12 @@ class ForecastPipeline:
             raise ValueError("Unsupported analysis mode.")
 
         # 1. Gather evidence
+        evidence_market_id = context_market_id or market_id
+        evidence_venue = context_venue or venue
         evidence = await self.source_manager.gather_evidence(
             question,
-            market_id=market_id,
-            venue=venue,
+            market_id=evidence_market_id,
+            venue=evidence_venue,
             allowed_sources=RWA_ALLOWED_SOURCES if normalized_mode == "rwa" else None,
         )
 
@@ -394,7 +398,10 @@ class ForecastPipeline:
         # 3. Apply Consensus Engine
         reputations = self.memory_store.get_agent_reputations()
         result = await self.consensus_engine.aggregate_predictions(market_id, predictions, reputations)
-        if not market_closes_at:
+        # An RWA outlook can use a prediction market as supporting evidence,
+        # but that market's resolution must never become the Stock Token
+        # forecast's resolution condition.
+        if not market_closes_at and normalized_mode != "rwa":
             selected_market = next((item for item in evidence if item.source_name in ("kalshi", "polymarket")), None)
             if selected_market:
                 market_closes_at = (selected_market.metadata or {}).get("expiration_time")
@@ -404,6 +411,12 @@ class ForecastPipeline:
         result.metadata["market_closes_at"] = market_closes_at
         if normalized_mode:
             result.metadata["analysis_mode"] = normalized_mode
+        if context_market_id:
+            result.metadata["context_market"] = {
+                "market_id": context_market_id,
+                "venue": context_venue,
+                "role": "supplementary_evidence",
+            }
         if runtime:
             result.metadata["agent_runtime"] = {
                 "id": runtime["id"],

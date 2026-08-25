@@ -66,6 +66,8 @@ def enforce_request_access(request: Request) -> None:
 class PredictionRequest(BaseModel):
     question: str
     market_id: str = "custom_market"
+    context_market_id: Optional[str] = None
+    context_venue: Optional[str] = None
     model_override: Optional[str] = None
     facts_key: Optional[str] = None
     venue: Optional[str] = None
@@ -413,6 +415,8 @@ async def predict(
             market_closes_at=req.market_closes_at,
             agent_runtime=req.agent_runtime,
             analysis_mode=req.analysis_mode,
+            context_market_id=req.context_market_id,
+            context_venue=req.context_venue,
         )
         agent_breakdown = [
             {
