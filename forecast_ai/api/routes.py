@@ -76,6 +76,8 @@ class PredictionRequest(BaseModel):
     market_closes_at: Optional[str] = None
     agent_runtime: Optional[Dict[str, Any]] = None
     analysis_mode: Optional[str] = None
+    forecast_horizon_days: Optional[int] = None
+    reference_price: Optional[float] = None
 
 class CalibrateRequest(BaseModel):
     agent_name: str
@@ -462,6 +464,8 @@ async def predict(
             "proof": result.metadata.get("proof", {}),
             "agent_runtime": result.metadata.get("agent_runtime"),
             "analysis_mode": result.metadata.get("analysis_mode"),
+            "forecast_horizon_days": req.forecast_horizon_days,
+            "reference_price": req.reference_price,
             "timestamp": result.timestamp.isoformat(),
             "agent_breakdown": agent_breakdown,
             "individual_predictions": agent_breakdown,

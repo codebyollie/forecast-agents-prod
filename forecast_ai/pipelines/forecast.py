@@ -71,12 +71,21 @@ def normalize_agent_runtime(value: Optional[Dict[str, Any]]) -> Optional[Dict[st
         for key, model in raw_models.items()
         if isinstance(model, str)
     }
+    purpose = str(config.get("purpose") or "hybrid").strip().lower()
+    if purpose not in {"prediction", "rwa", "hybrid"}:
+        purpose = "hybrid"
+    horizons = [
+        int(item) for item in (config.get("horizons") or [30, 90, 180])
+        if str(item).isdigit() and int(item) in {30, 90, 180}
+    ]
     return {
         "id": agent_id,
         "name": name,
         "mode": mode,
         "template_id": template_id,
         "category": str(config.get("category") or "General")[:80],
+        "purpose": purpose,
+        "horizons": horizons or [30, 90, 180],
         "selected_agents": selected_agents,
         "modules": modules,
         "models": models,
@@ -424,6 +433,8 @@ class ForecastPipeline:
                 "mode": runtime["mode"],
                 "template_id": runtime["template_id"],
                 "category": runtime["category"],
+                "purpose": runtime["purpose"],
+                "horizons": runtime["horizons"],
                 "selected_agents": runtime["selected_agents"],
                 "models": runtime["models"],
                 "modules": runtime["modules"],
