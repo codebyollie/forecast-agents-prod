@@ -72,11 +72,17 @@ async def test_reddit_agent_uses_domain_filtered_tavily_sources():
 
     assert tavily_fetch.await_args.kwargs["include_domains"] == ["reddit.com"]
     assert prediction.research_providers == ["Tavily"]
-    assert prediction.citations == [
-        {
-            "title": "Reddit thread",
-            "url": "https://www.reddit.com/r/predictionmarkets/comments/example/thread/",
-            "provider": "Tavily",
-            "sourceType": "reddit",
-        }
-    ]
+    assert len(prediction.citations) == 1
+    citation = prediction.citations[0]
+    assert {
+        "title": citation["title"],
+        "url": citation["url"],
+        "provider": citation["provider"],
+        "sourceType": citation["sourceType"],
+    } == {
+        "title": "Reddit thread",
+        "url": "https://www.reddit.com/r/predictionmarkets/comments/example/thread/",
+        "provider": "Tavily",
+        "sourceType": "reddit",
+    }
+    assert citation["date"]

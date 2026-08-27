@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from forecast_ai.models.evidence import Evidence
 from forecast_ai.pipelines.forecast import (
     filter_runtime_evidence,
     normalize_agent_runtime,
+    resolve_forecast_closes_at,
     runtime_modules_for_agent,
 )
 
@@ -60,3 +63,14 @@ def test_runtime_module_filter_keeps_only_selected_intelligence():
 
     filtered = filter_runtime_evidence(evidence, {"factsai"})
     assert [item.content for item in filtered] == ["facts"]
+
+
+def test_rwa_horizon_becomes_proof_resolution_timestamp():
+    started_at = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
+
+    assert resolve_forecast_closes_at(None, "rwa", 30, now=started_at) == "2026-09-26T12:00:00+00:00"
+
+
+def test_rwa_resolution_rejects_unsupported_horizon():
+    with pytest.raises(ValueError, match="30, 90, or 180-day"):
+        resolve_forecast_closes_at(None, "rwa", 14)

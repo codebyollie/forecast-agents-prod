@@ -417,6 +417,7 @@ async def predict(
             market_closes_at=req.market_closes_at,
             agent_runtime=req.agent_runtime,
             analysis_mode=req.analysis_mode,
+            forecast_horizon_days=req.forecast_horizon_days,
             context_market_id=req.context_market_id,
             context_venue=req.context_venue,
         )
@@ -465,6 +466,8 @@ async def predict(
             "agent_runtime": result.metadata.get("agent_runtime"),
             "analysis_mode": result.metadata.get("analysis_mode"),
             "forecast_horizon_days": req.forecast_horizon_days,
+            "market_closes_at": result.metadata.get("market_closes_at"),
+            "forecast_resolves_at": result.metadata.get("market_closes_at"),
             "reference_price": req.reference_price,
             "timestamp": result.timestamp.isoformat(),
             "agent_breakdown": agent_breakdown,

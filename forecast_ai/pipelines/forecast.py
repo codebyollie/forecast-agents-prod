@@ -6,7 +6,7 @@ Coordinates evidence gathering, agent predictions, consensus aggregation, and me
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from ..config import ForecastConfig
 from ..models.forecast import ForecastResult
@@ -31,6 +31,34 @@ SPECIALIST_AGENT_MAP = {
     "market-scout": "market",
     "risk-challenger": "macro",
 }
+
+RWA_FORECAST_HORIZONS = {30, 90, 180}
+
+
+def resolve_forecast_closes_at(
+    market_closes_at: Optional[str],
+    analysis_mode: Optional[str],
+    forecast_horizon_days: Optional[int],
+    *,
+    now: Optional[datetime] = None,
+) -> Optional[str]:
+    """Return the immutable resolution timestamp used by an RWA proof."""
+    if market_closes_at:
+        return market_closes_at
+    if str(analysis_mode or "").strip().lower() != "rwa":
+        return None
+
+    try:
+        horizon = int(forecast_horizon_days or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("RWA forecasts require a 30, 90, or 180-day horizon.") from exc
+    if horizon not in RWA_FORECAST_HORIZONS:
+        raise ValueError("RWA forecasts require a 30, 90, or 180-day horizon.")
+
+    started_at = now or datetime.now(timezone.utc)
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return (started_at + timedelta(days=horizon)).isoformat()
 
 # The RWA vertical deliberately does not use Mihari. It combines primary
 # corporate records, macro data, live research and social context instead.
@@ -260,6 +288,7 @@ class ForecastPipeline:
         market_closes_at: Optional[str] = None,
         agent_runtime: Optional[Dict[str, Any]] = None,
         analysis_mode: Optional[str] = None,
+        forecast_horizon_days: Optional[int] = None,
         context_market_id: Optional[str] = None,
         context_venue: Optional[str] = None,
     ) -> ForecastResult:
@@ -270,6 +299,11 @@ class ForecastPipeline:
         normalized_mode = str(analysis_mode or "").strip().lower()
         if normalized_mode not in {"", "rwa"}:
             raise ValueError("Unsupported analysis mode.")
+        market_closes_at = resolve_forecast_closes_at(
+            market_closes_at,
+            normalized_mode,
+            forecast_horizon_days,
+        )
 
         # 1. Gather evidence
         evidence_market_id = context_market_id or market_id
