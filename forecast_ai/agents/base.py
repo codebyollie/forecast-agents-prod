@@ -131,6 +131,7 @@ class ForecastAgent(ABC):
             url: str,
             provider: str,
             source_type: str = "web",
+            source_date: Any = None,
         ) -> None:
             clean_title = (title or "Source").strip()
             clean_url = (url or "").strip()
@@ -142,12 +143,18 @@ class ForecastAgent(ABC):
             citation_keys.add(key)
             clean_provider = (provider or "Source").strip()
             research_providers.add(clean_provider)
-            prediction_citations.append({
+            citation = {
                 "title": clean_title,
                 "url": clean_url,
                 "provider": clean_provider,
                 "sourceType": source_type or "web",
-            })
+            }
+            if source_date:
+                if hasattr(source_date, "isoformat"):
+                    citation["date"] = source_date.isoformat()
+                else:
+                    citation["date"] = str(source_date).strip()[:80]
+            prediction_citations.append(citation)
 
         # ── Web Research block ──────────────────────────────────────────────
         # Priority:  1. FactsAI  (Research / Macro / News)
@@ -237,6 +244,10 @@ class ForecastAgent(ABC):
                     item.url,
                     inferred_provider,
                     source_type,
+                    (item.metadata or {}).get("published_at")
+                    or (item.metadata or {}).get("publishedAt")
+                    or (item.metadata or {}).get("date")
+                    or item.timestamp,
                 )
 
         # ── 1. FactsAI for Research / Macro / News ─────────────────────────
@@ -275,7 +286,13 @@ class ForecastAgent(ABC):
                     title = c.get("title") or "Cited Source"
                     url   = c.get("url") or ""
                     if url or title:
-                        add_citation(title, url, "FactsAI", "research")
+                        add_citation(
+                            title,
+                            url,
+                            "FactsAI",
+                            "research",
+                            c.get("published_at") or c.get("publishedAt") or c.get("date"),
+                        )
                         active_evidence.append(Evidence(
                             source_name="FactsAI Citation",
                             content=f"FactsAI Verified Source: {title}",
@@ -330,7 +347,16 @@ class ForecastAgent(ABC):
                     if tavily_source_type == "summary" and item.content:
                         provider_insights["Tavily"] = str(item.content).strip()[:1200]
                     if item.url:
-                        add_citation(item.title or platform_label, item.url, "Tavily", agent_name)
+                        add_citation(
+                            item.title or platform_label,
+                            item.url,
+                            "Tavily",
+                            agent_name,
+                            item.metadata.get("published_at")
+                            or item.metadata.get("publishedAt")
+                            or item.metadata.get("date")
+                            or item.timestamp,
+                        )
                 if tavily_evidence:
                     research_providers.add("Tavily")
             except Exception as e:
@@ -393,7 +419,13 @@ class ForecastAgent(ABC):
                     title = c.get("title") or "Web Source"
                     url   = c.get("url") or ""
                     if url or title:
-                        add_citation(title, url, "OpenAI Web Search", agent_name if allowed_domains else "web")
+                        add_citation(
+                            title,
+                            url,
+                            "OpenAI Web Search",
+                            agent_name if allowed_domains else "web",
+                            c.get("published_at") or c.get("publishedAt") or c.get("date"),
+                        )
                         active_evidence.append(Evidence(
                             source_name="Web Citation",
                             content=f"Cited: {title}",
