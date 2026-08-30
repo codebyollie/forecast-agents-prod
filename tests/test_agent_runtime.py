@@ -68,9 +68,11 @@ def test_runtime_module_filter_keeps_only_selected_intelligence():
 def test_rwa_horizon_becomes_proof_resolution_timestamp():
     started_at = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
 
+    assert resolve_forecast_closes_at(None, "rwa", 1, now=started_at) == "2026-08-28T12:00:00+00:00"
+    assert resolve_forecast_closes_at(None, "rwa", 7, now=started_at) == "2026-09-03T12:00:00+00:00"
     assert resolve_forecast_closes_at(None, "rwa", 30, now=started_at) == "2026-09-26T12:00:00+00:00"
 
 
 def test_rwa_resolution_rejects_unsupported_horizon():
-    with pytest.raises(ValueError, match="30, 90, or 180-day"):
+    with pytest.raises(ValueError, match="24-hour, 7, 30, 90, or 180-day"):
         resolve_forecast_closes_at(None, "rwa", 14)

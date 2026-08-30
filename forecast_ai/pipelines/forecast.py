@@ -32,7 +32,8 @@ SPECIALIST_AGENT_MAP = {
     "risk-challenger": "macro",
 }
 
-RWA_FORECAST_HORIZONS = {30, 90, 180}
+RWA_FORECAST_HORIZONS = {1, 7, 30, 90, 180}
+RWA_FORECAST_HORIZON_LABEL = "24-hour, 7, 30, 90, or 180-day"
 
 
 def resolve_forecast_closes_at(
@@ -51,9 +52,9 @@ def resolve_forecast_closes_at(
     try:
         horizon = int(forecast_horizon_days or 0)
     except (TypeError, ValueError) as exc:
-        raise ValueError("RWA forecasts require a 30, 90, or 180-day horizon.") from exc
+        raise ValueError(f"RWA forecasts require a {RWA_FORECAST_HORIZON_LABEL} horizon.") from exc
     if horizon not in RWA_FORECAST_HORIZONS:
-        raise ValueError("RWA forecasts require a 30, 90, or 180-day horizon.")
+        raise ValueError(f"RWA forecasts require a {RWA_FORECAST_HORIZON_LABEL} horizon.")
 
     started_at = now or datetime.now(timezone.utc)
     if started_at.tzinfo is None:
@@ -103,8 +104,8 @@ def normalize_agent_runtime(value: Optional[Dict[str, Any]]) -> Optional[Dict[st
     if purpose not in {"prediction", "rwa", "hybrid"}:
         purpose = "hybrid"
     horizons = [
-        int(item) for item in (config.get("horizons") or [30, 90, 180])
-        if str(item).isdigit() and int(item) in {30, 90, 180}
+        int(item) for item in (config.get("horizons") or [1, 7, 30, 90, 180])
+        if str(item).isdigit() and int(item) in RWA_FORECAST_HORIZONS
     ]
     return {
         "id": agent_id,
@@ -113,7 +114,7 @@ def normalize_agent_runtime(value: Optional[Dict[str, Any]]) -> Optional[Dict[st
         "template_id": template_id,
         "category": str(config.get("category") or "General")[:80],
         "purpose": purpose,
-        "horizons": horizons or [30, 90, 180],
+        "horizons": horizons or [1, 7, 30, 90, 180],
         "selected_agents": selected_agents,
         "modules": modules,
         "models": models,
