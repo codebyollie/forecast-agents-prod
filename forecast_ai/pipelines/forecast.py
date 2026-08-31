@@ -6,6 +6,7 @@ Coordinates evidence gathering, agent predictions, consensus aggregation, and me
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from ..config import ForecastConfig
@@ -20,7 +21,12 @@ from ..services.opportunity_radar import build_opportunity_radar
 from ..services.market_search import MarketSearchService
 from ..services.outcome_graph import OutcomeGraphService
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
-from ..proof.ledger import build_forecast_envelope, build_resolution_hash
+from ..proof.ledger import (
+    build_forecast_envelope,
+    build_resolution_hash,
+    build_rwa_resolution_hash,
+    calculate_commitment_brier_scores,
+)
 from ..proof.outbox import SupabaseProofOutbox
 
 logger = logging.getLogger(__name__)
@@ -247,6 +253,7 @@ class ForecastPipeline:
         stock_tokens = None
         if config.robinhood_chain.stock_tokens_enabled:
             stock_tokens = RobinhoodStockTokenClient(config.robinhood_chain.stock_token_api_url)
+        self.stock_tokens = stock_tokens
         self.outcome_graph = OutcomeGraphService(market_search, stock_tokens)
         self._init_agents()
 
@@ -290,6 +297,8 @@ class ForecastPipeline:
         agent_runtime: Optional[Dict[str, Any]] = None,
         analysis_mode: Optional[str] = None,
         forecast_horizon_days: Optional[int] = None,
+        reference_price: Optional[float] = None,
+        asset_symbol: Optional[str] = None,
         context_market_id: Optional[str] = None,
         context_venue: Optional[str] = None,
     ) -> ForecastResult:
@@ -300,6 +309,24 @@ class ForecastPipeline:
         normalized_mode = str(analysis_mode or "").strip().lower()
         if normalized_mode not in {"", "rwa"}:
             raise ValueError("Unsupported analysis mode.")
+        normalized_symbol = str(asset_symbol or "").strip().upper()
+        normalized_reference_price = None
+        reference_quote = None
+        if normalized_mode == "rwa":
+            if not normalized_symbol:
+                raise ValueError("RWA forecasts require an asset symbol.")
+            if self.stock_tokens is None:
+                raise ValueError("Robinhood Stock Token pricing is unavailable.")
+            reference_quote = await self.stock_tokens.current_price(normalized_symbol)
+            normalized_reference_price = (
+                float(reference_quote.get("midpoint")) if reference_quote else None
+            )
+            if (
+                normalized_reference_price is None
+                or not math.isfinite(normalized_reference_price)
+                or normalized_reference_price <= 0
+            ):
+                raise ValueError("A verifiable Robinhood reference price is unavailable.")
         market_closes_at = resolve_forecast_closes_at(
             market_closes_at,
             normalized_mode,
@@ -455,6 +482,12 @@ class ForecastPipeline:
         result.metadata["market_closes_at"] = market_closes_at
         if normalized_mode:
             result.metadata["analysis_mode"] = normalized_mode
+        if normalized_mode == "rwa":
+            result.metadata["reference_price"] = normalized_reference_price
+            result.metadata["asset_symbol"] = normalized_symbol
+            result.metadata["forecast_horizon_days"] = int(forecast_horizon_days or 0)
+            result.metadata["reference_price_source"] = reference_quote.get("source")
+            result.metadata["reference_price_source_timestamp"] = reference_quote.get("generated_at")
         if context_market_id:
             result.metadata["context_market"] = {
                 "market_id": context_market_id,
@@ -543,39 +576,219 @@ class ForecastPipeline:
 
         return result
 
-    async def resolve_due_forecasts(self) -> Dict[str, Any]:
-        """Resolve due binary markets from official venue data without an LLM call."""
-        now = datetime.now(timezone.utc)
-        grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
-        for entry in self.memory_store.list_forecasts():
+    async def resolve_due_forecasts(self, *, now: Optional[datetime] = None) -> Dict[str, Any]:
+        """Resolve due markets and RWA prices from authoritative, non-LLM data."""
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+
+        due: Dict[str, Dict[str, Any]] = {}
+        for index, entry in enumerate(self.memory_store.list_forecasts()):
             if entry.get("resolution"):
                 continue
-            closes_at = entry.get("market_closes_at")
-            if not closes_at:
+            close_time = self._due_time(entry.get("market_closes_at"), now)
+            if close_time is None:
                 continue
-            try:
-                close_time = datetime.fromisoformat(str(closes_at).replace("Z", "+00:00"))
-                if close_time.tzinfo is None:
-                    close_time = close_time.replace(tzinfo=timezone.utc)
-            except ValueError:
-                continue
-            if close_time > now:
-                continue
-            key = (str(entry.get("market_id") or ""), str(entry.get("venue") or ""))
-            grouped[key] = entry
+            key = str(entry.get("forecast_id") or f"local:{entry.get('market_id')}:{index}")
+            due[key] = {**entry, "_close_time": close_time}
 
         # Supabase is the durable source of truth and survives Railway restarts.
-        for entry in await self.proof_outbox.list_due_markets():
-            key = (str(entry.get("market_id") or ""), str(entry.get("venue") or ""))
-            if key[0]:
-                grouped[key] = entry
+        durable = await self.proof_outbox.list_due_markets()
+        analysis_results = await self.proof_outbox.get_analysis_results(
+            [str(entry.get("analysis_id") or "") for entry in durable]
+        )
+        for index, entry in enumerate(durable):
+            close_time = self._due_time(entry.get("closes_at"), now)
+            if close_time is None:
+                continue
+            key = str(entry.get("forecast_id") or f"durable:{entry.get('id')}:{index}")
+            existing = due.get(key, {})
+            analysis_id = str(entry.get("analysis_id") or "")
+            due[key] = {
+                **existing,
+                **entry,
+                "_close_time": close_time,
+                "_analysis_result": analysis_results.get(analysis_id, {}),
+            }
 
-        checked = 0
+        rwa_entries: List[Dict[str, Any]] = []
+        market_groups: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
+        for entry in due.values():
+            analysis = entry.get("_analysis_result") or entry.get("metadata") or {}
+            if str(analysis.get("analysis_mode") or "").lower() == "rwa":
+                rwa_entries.append(entry)
+            else:
+                key = (str(entry.get("market_id") or ""), str(entry.get("venue") or ""))
+                if key[0]:
+                    market_groups.setdefault(key, []).append(entry)
+
         resolved_count = 0
-        unresolved = []
+        resolved_rwa = 0
+        unresolved: List[Dict[str, Any]] = []
         queued_onchain = 0
-        for (market_id, venue), entry in grouped.items():
-            checked += 1
+
+        for entry in rwa_entries:
+            analysis = entry.get("_analysis_result") or entry.get("metadata") or {}
+            market_id = str(entry.get("market_id") or "")
+            forecast_id = str(entry.get("forecast_id") or "")
+            analysis_id = str(entry.get("analysis_id") or "")
+            symbol = str(
+                analysis.get("asset_symbol")
+                or analysis.get("market_ticker")
+                or self._rwa_symbol_from_market_id(market_id)
+                or ""
+            ).upper()
+            try:
+                reference_price = float(analysis.get("reference_price"))
+            except (TypeError, ValueError):
+                reference_price = 0.0
+            if (
+                not forecast_id
+                or not symbol
+                or not math.isfinite(reference_price)
+                or reference_price <= 0
+                or self.stock_tokens is None
+            ):
+                unresolved.append({
+                    "forecast_id": forecast_id,
+                    "market_id": market_id,
+                    "venue": entry.get("venue"),
+                    "reason": "missing_rwa_resolution_context",
+                })
+                continue
+
+            existing_resolution = (
+                analysis.get("resolution")
+                if isinstance(analysis.get("resolution"), dict)
+                and analysis.get("resolution", {}).get("resolution_type") == "rwa_price"
+                else None
+            )
+            quote = None
+            if existing_resolution:
+                quote = {
+                    "midpoint": existing_resolution.get("final_price"),
+                    "bid": existing_resolution.get("final_bid"),
+                    "ask": existing_resolution.get("final_ask"),
+                    "currency": existing_resolution.get("currency") or "USD",
+                    "generated_at": existing_resolution.get("source_timestamp"),
+                    "source": existing_resolution.get("source"),
+                }
+            else:
+                try:
+                    quote = await self.stock_tokens.resolution_price(symbol, entry["_close_time"])
+                except Exception as exc:
+                    logger.warning("[ForecastPipeline] RWA resolution quote failed for %s: %s", symbol, exc)
+                    quote = None
+            if quote is None:
+                unresolved.append({
+                    "forecast_id": forecast_id,
+                    "market_id": market_id,
+                    "venue": entry.get("venue"),
+                    "reason": "no_verifiable_post_horizon_quote",
+                })
+                continue
+
+            try:
+                final_price = float(quote["midpoint"])
+            except (TypeError, ValueError):
+                final_price = 0.0
+            if not math.isfinite(final_price) or final_price <= 0:
+                unresolved.append({
+                    "forecast_id": forecast_id,
+                    "market_id": market_id,
+                    "venue": entry.get("venue"),
+                    "reason": "invalid_resolution_price",
+                })
+                continue
+            outcome = 1 if final_price > reference_price else 0
+            resolved_at = str(
+                existing_resolution.get("resolved_at") if existing_resolution else now.isoformat()
+            )
+            source = str(quote["source"])
+            commitments = entry.get("commitments") or (
+                analysis.get("proof", {}).get("onchain_commitments", [])
+                if isinstance(analysis.get("proof"), dict) else []
+            )
+            details = {
+                "resolution_type": "rwa_price",
+                "outcome": outcome,
+                "direction": "higher" if outcome else "not_higher",
+                "asset_symbol": symbol,
+                "forecast_resolves_at": entry["_close_time"].isoformat(),
+                "reference_price": round(reference_price, 8),
+                "final_price": round(final_price, 8),
+                "price_change_percent": round(((final_price / reference_price) - 1) * 100, 6),
+                "currency": quote.get("currency") or "USD",
+                "final_bid": quote.get("bid"),
+                "final_ask": quote.get("ask"),
+                "source": source,
+                "source_timestamp": quote["generated_at"],
+                "resolved_at": resolved_at,
+                **calculate_commitment_brier_scores(commitments, outcome),
+            }
+
+            self.memory_store.resolve_forecast(
+                forecast_id,
+                outcome,
+                source,
+                resolved_at,
+                resolution_details=details,
+            )
+            if analysis_id and analysis and not existing_resolution:
+                try:
+                    await self.proof_outbox.update_analysis_resolution(
+                        analysis_id,
+                        analysis,
+                        details,
+                        proof_status="resolved_offchain",
+                    )
+                except Exception as exc:
+                    logger.warning("[ForecastPipeline] RWA result update failed for %s: %s", forecast_id, exc)
+                    unresolved.append({
+                        "forecast_id": forecast_id,
+                        "market_id": market_id,
+                        "venue": entry.get("venue"),
+                        "reason": "resolution_persistence_failed",
+                    })
+                    continue
+            resolved_count += 1
+            resolved_rwa += 1
+            try:
+                resolution_hash = build_rwa_resolution_hash(
+                    forecast_id,
+                    symbol,
+                    outcome,
+                    reference_price,
+                    final_price,
+                    source,
+                    str(quote["generated_at"]),
+                    resolved_at,
+                )
+                if self.proof_outbox.configured and entry.get("id"):
+                    await self.proof_outbox.queue_forecast_resolution(
+                        forecast_id,
+                        outcome,
+                        resolution_hash,
+                    )
+                    if analysis_id and analysis:
+                        await self.proof_outbox.update_analysis_resolution(
+                            analysis_id,
+                            analysis,
+                            details,
+                            proof_status="resolution_pending_onchain",
+                        )
+                    queued_onchain += 1
+            except Exception as exc:
+                logger.warning("[ForecastPipeline] RWA onchain queue failed for %s: %s", forecast_id, exc)
+                unresolved.append({
+                    "forecast_id": forecast_id,
+                    "market_id": market_id,
+                    "venue": entry.get("venue"),
+                    "reason": "onchain_queue_failed",
+                })
+                continue
+
+        for (market_id, venue), entries in market_groups.items():
             outcome = None
             source_url = None
             try:
@@ -622,14 +835,35 @@ class ForecastPipeline:
                 venue=venue,
             )
             queued_onchain += 1
-            resolved_count += len(resolved)
+            resolved_count += max(len(resolved), len(entries))
 
         return {
-            "checked_markets": checked,
+            "checked_markets": len(market_groups),
+            "checked_rwa_forecasts": len(rwa_entries),
             "resolved_forecasts": resolved_count,
-            "queued_onchain_markets": queued_onchain,
+            "resolved_rwa_forecasts": resolved_rwa,
+            "queued_onchain": queued_onchain,
             "still_unresolved": unresolved,
         }
+
+    @staticmethod
+    def _due_time(value: Any, now: datetime) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed if parsed <= now else None
+
+    @staticmethod
+    def _rwa_symbol_from_market_id(market_id: str) -> Optional[str]:
+        normalized = str(market_id or "").strip().lower()
+        if not normalized.startswith("rwa-") or "-" not in normalized[4:]:
+            return None
+        return normalized[4:].rsplit("-", 1)[0].upper() or None
 
     async def queue_onchain_resolution(
         self,

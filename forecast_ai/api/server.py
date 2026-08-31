@@ -70,7 +70,7 @@ class ApiServer:
             await self.proof_publisher.stop()
 
     async def _run_resolution_loop(self) -> None:
-        """Queue official closed-market outcomes without invoking an LLM."""
+        """Queue official market outcomes and due RWA prices without an LLM."""
         while True:
             try:
                 await self.pipeline.resolve_due_forecasts()

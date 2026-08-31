@@ -16,8 +16,8 @@ async def test_durable_track_record_uses_only_verified_resolutions():
             "resolution_status": "verified",
             "outcome": True,
             "commitments": [
-                {"agent_name": "consensus", "probability_bps": 6000},
-                {"agent_name": "market", "probability_bps": 7000},
+                {"agent_name": "studio-1:consensus", "probability_bps": 6000},
+                {"agent_name": "studio-1:market", "probability_bps": 7000},
             ],
         },
         {
@@ -43,7 +43,7 @@ async def test_durable_track_record_uses_only_verified_resolutions():
     assert result["resolved_forecasts"] == 1
     assert result["pending_forecasts"] == 0
     assert result["average_brier_score"] == 0.16
-    assert result["agents"]["market"]["average_brier_score"] == 0.09
+    assert result["agents"]["studio-1:market"]["average_brier_score"] == 0.09
     assert result["categories"]["Politics"]["average_brier_score"] == 0.16
     assert get.await_args.kwargs["params"]["chain_id"] == "eq.46630"
     assert get.await_args.kwargs["params"]["registry_address"] == "eq.0xabc"
@@ -68,3 +68,40 @@ async def test_due_market_query_is_network_scoped():
     assert params["resolution_status"] == "is.null"
     assert params["chain_id"] == "eq.4663"
     assert params["registry_address"] == "eq.0xdef"
+    assert "forecast_id" in params["select"]
+    assert "analysis_id" in params["select"]
+
+
+@pytest.mark.asyncio
+async def test_verified_resolution_updates_result_and_agent_scores():
+    analysis_response = Mock(status_code=200)
+    analysis_response.json.return_value = [{
+        "result": {
+            "analysis_mode": "rwa",
+            "resolution": {"resolution_type": "rwa_price", "final_price": 110.0},
+            "proof": {"status": "verified_onchain"},
+        }
+    }]
+    patch_response = Mock(status_code=204, text="")
+    row = {
+        "id": "row-1",
+        "analysis_id": "analysis-1",
+        "outcome": True,
+        "commitments": [
+            {"agent_name": "studio:consensus", "probability_bps": 8000},
+            {"agent_name": "studio:market", "probability_bps": 7000},
+        ],
+    }
+    outbox = SupabaseProofOutbox("https://example.supabase.co", "service-key")
+
+    with (
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=analysis_response),
+        patch("httpx.AsyncClient.patch", new_callable=AsyncMock, return_value=patch_response) as patch_request,
+    ):
+        await outbox.mark_resolution_verified(row, "0xtx", 123)
+
+    result = patch_request.await_args_list[1].kwargs["json"]["result"]
+    assert result["proof"]["status"] == "resolved_onchain"
+    assert result["resolution"]["status"] == "resolved_onchain"
+    assert result["resolution"]["consensus_brier_score"] == 0.04
+    assert result["resolution"]["agent_scores"][0]["brier_score"] == 0.09

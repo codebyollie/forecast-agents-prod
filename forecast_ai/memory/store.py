@@ -133,30 +133,71 @@ class MemoryStore:
         for entry in forecasts:
             if entry.get("market_id") != market_id or entry.get("resolution"):
                 continue
-            consensus_brier = calculate_brier_score(entry.get("probability", 0.5), outcome)
-            agent_scores = []
-            for prediction in entry.get("predictions", []):
-                agent_brier = calculate_brier_score(prediction.get("probability", 0.5), outcome)
-                prediction["brier_score"] = agent_brier
-                agent_scores.append({
-                    "agent_id": prediction.get("agent_name"),
-                    "probability": prediction.get("probability"),
-                    "brier_score": agent_brier,
-                })
-                self.apply_agent_brier_score(prediction.get("agent_name", "unknown"), agent_brier)
-            entry["resolution"] = {
-                "outcome": outcome,
-                "resolved_at": resolved_at,
-                "source": resolution_source,
-                "consensus_brier_score": consensus_brier,
-                "agent_scores": agent_scores,
-            }
-            proof = entry.setdefault("metadata", {}).setdefault("proof", {})
-            if proof.get("status") != "verified_onchain":
-                proof["status"] = "resolved_offchain"
+            self._apply_resolution(entry, outcome, resolution_source, resolved_at)
             resolved.append(entry)
         self._save_json(self.forecasts_file, forecasts)
         return resolved
+
+    def resolve_forecast(
+        self,
+        forecast_id: str,
+        outcome: int,
+        resolution_source: str,
+        resolved_at: str,
+        resolution_details: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve one immutable forecast without affecting later RWA runs."""
+        if outcome not in (0, 1):
+            raise ValueError("Outcome must be 0 or 1.")
+        forecasts = self._load_json(self.forecasts_file)
+        resolved = None
+        for entry in forecasts:
+            if entry.get("forecast_id") != forecast_id or entry.get("resolution"):
+                continue
+            self._apply_resolution(
+                entry,
+                outcome,
+                resolution_source,
+                resolved_at,
+                resolution_details=resolution_details,
+            )
+            resolved = entry
+            break
+        self._save_json(self.forecasts_file, forecasts)
+        return resolved
+
+    def _apply_resolution(
+        self,
+        entry: Dict[str, Any],
+        outcome: int,
+        resolution_source: str,
+        resolved_at: str,
+        *,
+        resolution_details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        consensus_brier = calculate_brier_score(entry.get("probability", 0.5), outcome)
+        agent_scores = []
+        for prediction in entry.get("predictions", []):
+            agent_brier = calculate_brier_score(prediction.get("probability", 0.5), outcome)
+            prediction["brier_score"] = agent_brier
+            agent_scores.append({
+                "agent_id": prediction.get("agent_name"),
+                "probability": prediction.get("probability"),
+                "brier_score": agent_brier,
+            })
+            self.apply_agent_brier_score(prediction.get("agent_name", "unknown"), agent_brier)
+        entry["resolution"] = {
+            **(resolution_details or {}),
+            "status": "resolved_offchain",
+            "outcome": outcome,
+            "resolved_at": resolved_at,
+            "source": resolution_source,
+            "consensus_brier_score": consensus_brier,
+            "agent_scores": agent_scores,
+        }
+        proof = entry.setdefault("metadata", {}).setdefault("proof", {})
+        if proof.get("status") != "resolved_onchain":
+            proof["status"] = "resolved_offchain"
 
     def apply_agent_brier_score(self, agent_name: str, brier_score: float) -> None:
         if not self.config.memory.enable_reputation_updates:

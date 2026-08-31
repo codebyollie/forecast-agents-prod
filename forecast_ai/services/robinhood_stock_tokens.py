@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -53,10 +55,12 @@ class RobinhoodStockTokenClient:
         self._assets_at = time.time()
         return self._assets
 
-    async def quote(self, symbol: str) -> Optional[Dict[str, Any]]:
-        normalized = symbol.upper()
+    async def quote(self, symbol: str, *, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
+        normalized = symbol.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9.-]{1,20}", normalized):
+            return None
         cached = self._quotes.get(normalized)
-        if cached and time.time() - cached[0] < 15:
+        if not force_refresh and cached and time.time() - cached[0] < 15:
             return cached[1]
         data = await self._get_json(f"prices/{normalized}")
         quotes = data.get("quotes")
@@ -65,6 +69,57 @@ class RobinhoodStockTokenClient:
             self._quotes[normalized] = (time.time(), quote)
             return quote
         return None
+
+    async def resolution_price(
+        self,
+        symbol: str,
+        not_before: datetime,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the first verifiable midpoint observed at or after a horizon.
+
+        A stale pre-horizon quote is never used. If the market is closed, the
+        forecast remains pending until Robinhood publishes a newer quote.
+        """
+        if not_before.tzinfo is None:
+            not_before = not_before.replace(tzinfo=timezone.utc)
+        price = await self.current_price(symbol)
+        if not price:
+            return None
+        source_time = datetime.fromisoformat(str(price["generated_at"]).replace("Z", "+00:00"))
+        if source_time.tzinfo is None:
+            source_time = source_time.replace(tzinfo=timezone.utc)
+        return price if source_time >= not_before else None
+
+    async def current_price(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Return a browser-independent official midpoint and source timestamp."""
+        quote = await self.quote(symbol, force_refresh=True)
+        if not quote:
+            return None
+        generated_at = str(quote.get("generatedAt") or "").strip()
+        if not generated_at:
+            return None
+        try:
+            source_time = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if source_time.tzinfo is None:
+            source_time = source_time.replace(tzinfo=timezone.utc)
+        try:
+            bid = float(quote.get("bid"))
+            ask = float(quote.get("ask"))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask <= 0 or ask < bid:
+            return None
+        return {
+            "symbol": symbol.upper(),
+            "bid": bid,
+            "ask": ask,
+            "midpoint": round((bid + ask) / 2, 8),
+            "currency": str(quote.get("currency") or "USD"),
+            "generated_at": source_time.isoformat(),
+            "source": f"{self.base_url}/prices/{symbol.upper()}",
+        }
 
     async def asset(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Return one canonical Robinhood Stock Token asset by its token symbol."""

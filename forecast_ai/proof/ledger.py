@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 from ..models.forecast import ForecastResult
 
@@ -15,6 +15,38 @@ def calculate_brier_score(probability: float, outcome: int) -> float:
         raise ValueError("Outcome must be 0 or 1.")
     probability = max(0.0, min(1.0, float(probability)))
     return round((probability - float(outcome)) ** 2, 6)
+
+
+def calculate_commitment_brier_scores(
+    commitments: Iterable[Dict[str, Any]], outcome: int
+) -> Dict[str, Any]:
+    """Calculate consensus and specialist scores from immutable commitments."""
+    if outcome not in (0, 1):
+        raise ValueError("Outcome must be 0 or 1.")
+    consensus_score = None
+    agent_scores = []
+    for commitment in commitments:
+        if not isinstance(commitment, dict):
+            continue
+        probability = max(
+            0.0,
+            min(1.0, float(commitment.get("probability_bps") or 0) / 10_000),
+        )
+        agent_name = str(commitment.get("agent_name") or "unknown")
+        score = calculate_brier_score(probability, outcome)
+        score_row = {
+            "agent_id": agent_name,
+            "probability": round(probability, 6),
+            "brier_score": score,
+        }
+        if agent_name == "consensus" or agent_name.endswith(":consensus"):
+            consensus_score = score
+        else:
+            agent_scores.append(score_row)
+    return {
+        "consensus_brier_score": consensus_score,
+        "agent_scores": agent_scores,
+    }
 
 
 def _canonical_json(payload: Dict[str, Any]) -> str:
@@ -33,6 +65,33 @@ def build_resolution_hash(market_id: str, outcome: int, source: str, resolved_at
         "market_id": market_id,
         "outcome": outcome,
         "source": source,
+        "resolved_at": resolved_at,
+    }
+    return _digest(_canonical_json(payload))
+
+
+def build_rwa_resolution_hash(
+    forecast_id: str,
+    asset_symbol: str,
+    outcome: int,
+    reference_price: float,
+    final_price: float,
+    source: str,
+    source_timestamp: str,
+    resolved_at: str,
+) -> str:
+    """Commit the auditable RWA pricing inputs behind the binary outcome."""
+    if outcome not in (0, 1):
+        raise ValueError("Outcome must be 0 or 1.")
+    payload = {
+        "schema": "forecast-ai-rwa-resolution-v1",
+        "forecast_id": forecast_id,
+        "asset_symbol": asset_symbol.upper(),
+        "outcome": outcome,
+        "reference_price": round(float(reference_price), 8),
+        "final_price": round(float(final_price), 8),
+        "source": source,
+        "source_timestamp": source_timestamp,
         "resolved_at": resolved_at,
     }
     return _digest(_canonical_json(payload))
@@ -84,6 +143,17 @@ def build_forecast_envelope(
             for prediction in sorted(result.individual_predictions, key=lambda item: item.agent_name)
         ],
     }
+    if str(result.metadata.get("analysis_mode") or "").lower() == "rwa":
+        payload["resolution_spec"] = {
+            "type": "rwa_price_direction",
+            "asset_symbol": str(result.metadata.get("asset_symbol") or "").upper(),
+            "reference_price": round(float(result.metadata.get("reference_price") or 0), 8),
+            "reference_price_source": result.metadata.get("reference_price_source"),
+            "reference_price_source_timestamp": result.metadata.get("reference_price_source_timestamp"),
+            "forecast_horizon_days": int(result.metadata.get("forecast_horizon_days") or 0),
+            "resolves_at": market_closes_at,
+            "condition": "final_midpoint_greater_than_reference_midpoint",
+        }
     if agent_identity:
         payload["agent_identity"] = agent_identity
     canonical = _canonical_json(payload)

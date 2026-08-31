@@ -78,6 +78,7 @@ class PredictionRequest(BaseModel):
     analysis_mode: Optional[str] = None
     forecast_horizon_days: Optional[int] = None
     reference_price: Optional[float] = None
+    asset_symbol: Optional[str] = None
 
 class CalibrateRequest(BaseModel):
     agent_name: str
@@ -418,6 +419,8 @@ async def predict(
             agent_runtime=req.agent_runtime,
             analysis_mode=req.analysis_mode,
             forecast_horizon_days=req.forecast_horizon_days,
+            reference_price=req.reference_price,
+            asset_symbol=req.asset_symbol,
             context_market_id=req.context_market_id,
             context_venue=req.context_venue,
         )
@@ -468,7 +471,10 @@ async def predict(
             "forecast_horizon_days": req.forecast_horizon_days,
             "market_closes_at": result.metadata.get("market_closes_at"),
             "forecast_resolves_at": result.metadata.get("market_closes_at"),
-            "reference_price": req.reference_price,
+            "reference_price": result.metadata.get("reference_price", req.reference_price),
+            "reference_price_source": result.metadata.get("reference_price_source"),
+            "reference_price_source_timestamp": result.metadata.get("reference_price_source_timestamp"),
+            "asset_symbol": result.metadata.get("asset_symbol", req.asset_symbol),
             "timestamp": result.timestamp.isoformat(),
             "agent_breakdown": agent_breakdown,
             "individual_predictions": agent_breakdown,

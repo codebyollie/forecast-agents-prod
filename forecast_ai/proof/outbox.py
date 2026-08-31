@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .ledger import calculate_commitment_brier_scores
+
 
 class ProofOutboxError(RuntimeError):
     pass
@@ -96,12 +98,12 @@ class SupabaseProofOutbox:
         return data if isinstance(data, list) else []
 
     async def list_due_markets(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Return committed markets that are closed but not yet queued for resolution."""
+        """Return committed forecasts that are due but not queued for resolution."""
         if not self.configured:
             return []
         now = datetime.now(timezone.utc).isoformat()
         params: Dict[str, str] = {
-            "select": "market_id,venue,closes_at",
+            "select": "id,analysis_id,forecast_id,market_id,venue,closes_at,commitments",
             "status": "eq.verified",
             "resolution_status": "is.null",
             "closes_at": f"lte.{now}",
@@ -124,6 +126,34 @@ class SupabaseProofOutbox:
             )
         data = response.json()
         return data if isinstance(data, list) else []
+
+    async def get_analysis_results(self, analysis_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Load linked result payloads in one request for resolution routing."""
+        ids = list(dict.fromkeys(str(item) for item in analysis_ids if item))
+        if not self.configured or not ids:
+            return {}
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.get(
+                f"{self.url}/rest/v1/analyses_history",
+                headers=self._headers(),
+                params={
+                    "id": f"in.({','.join(ids)})",
+                    "select": "id,result",
+                    "limit": str(min(len(ids), 500)),
+                },
+            )
+        if response.status_code != 200:
+            raise ProofOutboxError(
+                f"Due analysis read failed ({response.status_code}): {response.text[:240]}"
+            )
+        rows = response.json()
+        if not isinstance(rows, list):
+            return {}
+        return {
+            str(row["id"]): row["result"]
+            for row in rows
+            if isinstance(row, dict) and row.get("id") and isinstance(row.get("result"), dict)
+        }
 
     async def update(self, row_id: str, values: Dict[str, Any]) -> None:
         payload = {**values, "updated_at": datetime.now(timezone.utc).isoformat()}
@@ -211,6 +241,78 @@ class SupabaseProofOutbox:
         if response.status_code not in (200, 204):
             raise ProofOutboxError(f"Resolution queue failed ({response.status_code}): {response.text[:240]}")
 
+    async def queue_forecast_resolution(
+        self,
+        forecast_id: str,
+        outcome: int,
+        resolution_hash: str,
+    ) -> None:
+        """Queue one RWA forecast, never every run sharing its synthetic market ID."""
+        if not self.configured:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        params: Dict[str, str] = {
+            "forecast_id": f"eq.{forecast_id}",
+            "status": "eq.verified",
+            "resolution_status": "is.null",
+        }
+        if self.chain_id is not None:
+            params["chain_id"] = f"eq.{self.chain_id}"
+        if self.registry_address:
+            params["registry_address"] = f"eq.{self.registry_address}"
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.patch(
+                f"{self.url}/rest/v1/forecast_proof_outbox",
+                headers=self._headers("return=minimal"),
+                params=params,
+                json={
+                    "outcome": bool(outcome),
+                    "resolution_hash": resolution_hash,
+                    "resolution_status": "pending",
+                    "resolution_next_attempt_at": now,
+                    "updated_at": now,
+                },
+            )
+        if response.status_code not in (200, 204):
+            raise ProofOutboxError(
+                f"Forecast resolution queue failed ({response.status_code}): {response.text[:240]}"
+            )
+
+    async def update_analysis_resolution(
+        self,
+        analysis_id: str,
+        result: Dict[str, Any],
+        resolution: Dict[str, Any],
+        *,
+        proof_status: str,
+    ) -> None:
+        """Persist auditable RWA prices and Brier Scores in the public result."""
+        updated_result = dict(result)
+        updated_resolution = {**resolution, "status": proof_status}
+        updated_result["resolution"] = updated_resolution
+        proof = updated_result.get("proof") if isinstance(updated_result.get("proof"), dict) else {}
+        proof.update({
+            "resolution_status": proof_status,
+            "outcome": bool(resolution.get("outcome")),
+            "resolution_source": resolution.get("source"),
+            "resolved_at": resolution.get("resolved_at"),
+        })
+        updated_result["proof"] = proof
+        radar = updated_result.get("opportunity_radar")
+        if isinstance(radar, dict):
+            radar["proof"] = {**(radar.get("proof") or {}), **proof}
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.patch(
+                f"{self.url}/rest/v1/analyses_history",
+                headers=self._headers("return=minimal"),
+                params={"id": f"eq.{analysis_id}"},
+                json={"result": updated_result},
+            )
+        if response.status_code not in (200, 204):
+            raise ProofOutboxError(
+                f"Analysis resolution details update failed ({response.status_code}): {response.text[:240]}"
+            )
+
     async def mark_resolution_processing(self, row: Dict[str, Any]) -> None:
         await self.update(row["id"], {
             "resolution_status": "processing",
@@ -270,7 +372,7 @@ class SupabaseProofOutbox:
                 stat = agents.setdefault(agent_name, {"resolved": 0, "brier_total": 0.0})
                 stat["resolved"] += 1
                 stat["brier_total"] += score
-                if agent_name == "consensus":
+                if agent_name == "consensus" or agent_name.endswith(":consensus"):
                     consensus_scores.append(score)
                     category = categories.setdefault(
                         category_name, {"resolved": 0, "brier_total": 0.0}
@@ -329,7 +431,12 @@ class SupabaseProofOutbox:
         })
         if row.get("analysis_id"):
             await self._update_analysis_resolution(
-                str(row["analysis_id"]), bool(row.get("outcome")), tx_hash, block_number, resolved_at
+                str(row["analysis_id"]),
+                bool(row.get("outcome")),
+                tx_hash,
+                block_number,
+                resolved_at,
+                commitments=row.get("commitments") or [],
             )
 
     async def _update_analysis_proof(
@@ -380,7 +487,14 @@ class SupabaseProofOutbox:
             )
 
     async def _update_analysis_resolution(
-        self, analysis_id: str, outcome: bool, tx_hash: str, block_number: int, resolved_at: str
+        self,
+        analysis_id: str,
+        outcome: bool,
+        tx_hash: str,
+        block_number: int,
+        resolved_at: str,
+        *,
+        commitments: List[Dict[str, Any]],
     ) -> None:
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
@@ -394,6 +508,17 @@ class SupabaseProofOutbox:
             if not isinstance(rows, list) or not rows or not isinstance(rows[0].get("result"), dict):
                 return
             result = rows[0]["result"]
+            resolution = result.get("resolution") if isinstance(result.get("resolution"), dict) else {}
+            scores = calculate_commitment_brier_scores(commitments, 1 if outcome else 0)
+            resolution.update({
+                **scores,
+                "status": "resolved_onchain",
+                "outcome": 1 if outcome else 0,
+                "resolved_onchain_at": resolved_at,
+                "resolution_transaction_hash": tx_hash,
+                "resolution_block_number": block_number,
+            })
+            result["resolution"] = resolution
             proof = result.get("proof") if isinstance(result.get("proof"), dict) else {}
             proof.update({
                 "status": "resolved_onchain",
