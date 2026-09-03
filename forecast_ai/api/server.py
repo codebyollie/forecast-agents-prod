@@ -15,6 +15,7 @@ from ..config import ForecastConfig
 from ..config_store import ConfigStore
 from ..proof.publisher import ProofPublisher
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
+from ..services.activity_resolver import resolve_website_activities
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,13 @@ class ApiServer:
                 raise
             except Exception as exc:
                 logger.warning("[ProofResolver] Resolution check failed: %s", exc)
+            try:
+                await resolve_website_activities()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # Do not log the callback secret or request headers.
+                logger.warning("[ActivityResolver] Scoring callback failed (%s); will retry", type(exc).__name__)
             await asyncio.sleep(self.config.robinhood_chain.resolution_interval_seconds)
 
     async def start(self):
