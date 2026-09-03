@@ -14,6 +14,7 @@ from ..models.prediction import Prediction
 from ..models.confidence import ConfidenceScore
 from ..providers.base import BaseProvider
 from ..config import ForecastConfig
+from ..intelligence.provider_status import normalize_provider_statuses
 
 class ForecastAgent(ABC):
     def __init__(
@@ -590,5 +591,5 @@ Return ONLY valid JSON. Do not include markdown wraps or additional conversation
             citations=prediction_citations[:8],
             research_providers=sorted(research_providers),
             provider_insights=provider_insights,
-            provider_statuses=provider_statuses,
+            provider_statuses=normalize_provider_statuses(provider_statuses),
         )

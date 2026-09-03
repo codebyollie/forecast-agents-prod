@@ -457,6 +457,7 @@ async def predict(
                 "warnings": result.confidence.warnings
             },
             "reasoning": result.metadata.get("summary_reasoning", ""),
+            "evidence_correlation": result.metadata.get("evidence_correlation", {}),
             "reasoning_trace": {
                 "agent_contributions": result.reasoning_trace.agent_contributions,
                 "aggregation_steps": result.reasoning_trace.aggregation_steps,

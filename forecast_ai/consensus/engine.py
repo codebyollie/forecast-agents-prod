@@ -16,6 +16,7 @@ from .reasoning import ConsensusReasoningSynthesizer
 from ..intelligence.anomaly_detection import AnomalyDetector
 from ..intelligence.probability_calibration import ProbabilityCalibrator
 from ..intelligence.reasoning import ReasoningTraceBuilder
+from ..intelligence.evidence_correlation import analyze_evidence_dependencies
 
 class ConsensusEngine:
     def __init__(self, config: ForecastConfig):
@@ -46,18 +47,37 @@ class ConsensusEngine:
         # 1. Detect conflicts or warnings
         warnings = self.detector.detect_conflict_narratives(predictions)
 
+        dependency_report = analyze_evidence_dependencies(predictions)
+        adjusted_weights = {
+            name: weight * dependency_report["agent_weight_multipliers"].get(name, 1.0)
+            for name, weight in agent_weights.items()
+        }
+        if dependency_report["shared_source_count"]:
+            warnings.append(
+                f"Source correlation detected across {dependency_report['shared_source_count']} evidence clusters; duplicate influence was reduced."
+            )
+
         # 2. Weighted consensus probability
-        raw_prob = self.weighted_calc.calculate_weighted_probability(predictions, agent_weights)
+        raw_prob = self.weighted_calc.calculate_weighted_probability(
+            predictions,
+            adjusted_weights,
+            influence_cap_multiple=dependency_report["influence_cap_multiple"],
+        )
 
         # 3. Consensus confidence scoring
-        confidence = self.conf_calc.calculate_confidence(predictions, agent_weights, warnings)
+        confidence = self.conf_calc.calculate_confidence(
+            predictions,
+            adjusted_weights,
+            warnings,
+            correlation_penalty=dependency_report["confidence_penalty"],
+        )
 
         # 4. Calibrate final probability
         calibrated_prob = self.calibrator.calibrate(raw_prob, confidence.score)
 
         # 5. Synthesis reasoning and building trace
         summary_reasoning = self.synthesizer.synthesize_reasoning(predictions, calibrated_prob, confidence.score)
-        trace = self.trace_builder.build_trace(predictions, agent_weights, warnings)
+        trace = self.trace_builder.build_trace(predictions, adjusted_weights, warnings)
 
         return ForecastResult(
             market_id=market_id,
@@ -67,6 +87,7 @@ class ConsensusEngine:
             individual_predictions=predictions,
             metadata={
                 "raw_probability": raw_prob,
-                "summary_reasoning": summary_reasoning
+                "summary_reasoning": summary_reasoning,
+                "evidence_correlation": dependency_report,
             }
         )

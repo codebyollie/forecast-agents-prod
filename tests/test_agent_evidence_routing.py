@@ -117,7 +117,7 @@ async def test_falcon_active_status_wins_when_optional_layer_is_unavailable():
 
     prediction = await agent.forecast("Will the market resolve yes?", evidence)
 
-    assert prediction.provider_statuses["Falcon"] == "active"
+    assert prediction.provider_statuses["Falcon"] == "used"
     assert "Falcon Market Intelligence" in prediction.provider_insights
 
 
@@ -143,7 +143,7 @@ async def test_perigon_and_exa_are_exposed_as_active_research_providers():
 
     prediction = await agent.forecast("Will the event happen?", evidence)
 
-    assert prediction.provider_statuses["Perigon"] == "active"
-    assert prediction.provider_statuses["Exa"] == "active"
+    assert prediction.provider_statuses["Perigon"] == "used"
+    assert prediction.provider_statuses["Exa"] == "used"
     assert "Perigon Structured News" in prediction.provider_insights
     assert "Exa Deep Research" in prediction.provider_insights

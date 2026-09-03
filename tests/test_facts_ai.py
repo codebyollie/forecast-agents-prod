@@ -123,7 +123,7 @@ async def test_preloaded_facts_ai_research_prevents_duplicate_paid_call():
         prediction = await agent.forecast("Will CPI fall?", evidence=preloaded)
 
     fetch.assert_not_called()
-    assert prediction.provider_statuses["FactsAI"] == "active"
+    assert prediction.provider_statuses["FactsAI"] == "used"
     assert prediction.provider_insights["FactsAI"] == "Shared verified research."
 
 def test_facts_ai_config_env_overrides():
