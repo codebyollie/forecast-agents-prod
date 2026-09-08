@@ -363,7 +363,10 @@ async def rwa_asset_detail(
 
     async def safe_quote() -> Optional[Dict[str, Any]]:
         try:
-            return await asyncio.wait_for(stock_tokens.quote(normalized_symbol), timeout=12)
+            quote = await asyncio.wait_for(stock_tokens.current_price(normalized_symbol), timeout=12)
+            if quote and quote.get("quote_status") == "last_known_good":
+                warnings.append("Showing the most recent verified Robinhood quote while live pricing recovers.")
+            return quote
         except Exception as exc:
             logger.warning("RWA quote unavailable for %s: %s", normalized_symbol, exc)
             warnings.append("Live Robinhood quote is temporarily unavailable.")

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock
 
@@ -47,7 +48,44 @@ async def test_resolution_price_uses_verified_post_horizon_midpoint():
         "currency": "USD",
         "generated_at": "2026-09-01T12:00:01+00:00",
         "source": "https://api.robinhood.com/rhj/prices/NVDA",
+        "quote_status": "live",
+        "cache_age_seconds": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_current_price_uses_recent_last_known_good_when_live_quote_fails():
+    client = RobinhoodStockTokenClient(last_good_ttl_seconds=300)
+    client.quote = AsyncMock(side_effect=[{
+        "bid": "99",
+        "ask": "101",
+        "currency": "USD",
+        "generatedAt": "2026-09-01T12:00:01Z",
+    }, RuntimeError("temporary upstream failure")])
+
+    live = await client.current_price("NVDA")
+    fallback = await client.current_price("NVDA")
+
+    assert live["quote_status"] == "live"
+    assert fallback["midpoint"] == 100.0
+    assert fallback["quote_status"] == "last_known_good"
+    assert fallback["generated_at"] == "2026-09-01T12:00:01+00:00"
+
+
+@pytest.mark.asyncio
+async def test_current_price_rejects_expired_last_known_good_quote():
+    client = RobinhoodStockTokenClient(last_good_ttl_seconds=0)
+    client.quote = AsyncMock(side_effect=[{
+        "bid": "99",
+        "ask": "101",
+        "currency": "USD",
+        "generatedAt": "2026-09-01T12:00:01Z",
+    }, RuntimeError("temporary upstream failure")])
+
+    await client.current_price("NVDA")
+    await asyncio.sleep(0)
+
+    assert await client.current_price("NVDA") is None
 
 
 @pytest.mark.asyncio

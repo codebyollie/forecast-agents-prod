@@ -28,23 +28,47 @@ _THEME_SYMBOLS = {
 
 
 class RobinhoodStockTokenClient:
-    def __init__(self, base_url: str = "https://api.robinhood.com/rhj", timeout_seconds: float = 15.0):
+    def __init__(
+        self,
+        base_url: str = "https://api.robinhood.com/rhj",
+        timeout_seconds: float = 15.0,
+        *,
+        retry_attempts: int = 3,
+        last_good_ttl_seconds: float = 300.0,
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.retry_attempts = max(1, retry_attempts)
+        self.last_good_ttl_seconds = max(0.0, last_good_ttl_seconds)
         self._assets: List[Dict[str, Any]] = []
         self._assets_at = 0.0
         self._quotes: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._last_good_prices: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
     async def _get_json(self, path: str) -> Dict[str, Any]:
+        last_error: Optional[Exception] = None
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/{path.lstrip('/')}",
-                headers={"Accept": "application/json"},
-                timeout=self.timeout_seconds,
-            )
-        response.raise_for_status()
-        data = response.json()
-        return data if isinstance(data, dict) else {}
+            for attempt in range(self.retry_attempts):
+                try:
+                    response = await client.get(
+                        f"{self.base_url}/{path.lstrip('/')}",
+                        headers={"Accept": "application/json"},
+                        timeout=self.timeout_seconds,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return data if isinstance(data, dict) else {}
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if exc.response.status_code != 429 and exc.response.status_code < 500:
+                        raise
+                except (httpx.TransportError, ValueError) as exc:
+                    last_error = exc
+                if attempt + 1 < self.retry_attempts:
+                    await asyncio.sleep(0.2 * (2**attempt))
+        if last_error:
+            raise last_error
+        return {}
 
     async def assets(self) -> List[Dict[str, Any]]:
         if self._assets and time.time() - self._assets_at < 86_400:
@@ -91,11 +115,39 @@ class RobinhoodStockTokenClient:
         return price if source_time >= not_before else None
 
     async def current_price(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Return a browser-independent official midpoint and source timestamp."""
-        quote = await self.quote(symbol, force_refresh=True)
+        """Return an official midpoint, falling back briefly to a verified quote."""
+        normalized = symbol.strip().upper()
+        try:
+            quote = await self.quote(normalized, force_refresh=True)
+        except Exception:
+            quote = None
+        price = self._normalize_price(normalized, quote)
+        if price:
+            price["quote_status"] = "live"
+            price["cache_age_seconds"] = 0
+            self._last_good_prices[normalized] = (time.time(), dict(price))
+            return price
+
+        cached = self._last_good_prices.get(normalized)
+        if not cached:
+            return None
+        cache_age = max(0.0, time.time() - cached[0])
+        if self.last_good_ttl_seconds <= 0 or cache_age > self.last_good_ttl_seconds:
+            return None
+        fallback = dict(cached[1])
+        fallback["quote_status"] = "last_known_good"
+        fallback["cache_age_seconds"] = round(cache_age, 3)
+        return fallback
+
+    def _normalize_price(
+        self,
+        symbol: str,
+        quote: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Validate a Robinhood quote before it can enter the trusted cache."""
         if not quote:
             return None
-        generated_at = str(quote.get("generatedAt") or "").strip()
+        generated_at = str(quote.get("generatedAt") or quote.get("generated_at") or "").strip()
         if not generated_at:
             return None
         try:
@@ -112,7 +164,7 @@ class RobinhoodStockTokenClient:
         if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0 or ask <= 0 or ask < bid:
             return None
         return {
-            "symbol": symbol.upper(),
+            "symbol": symbol,
             "bid": bid,
             "ask": ask,
             "midpoint": round((bid + ask) / 2, 8),
@@ -162,11 +214,13 @@ class RobinhoodStockTokenClient:
                 "bid": quote.get("bid"),
                 "ask": quote.get("ask"),
                 "currency": quote.get("currency") or "USD",
-                "daily_high": quote.get("dailyHigh"),
-                "daily_low": quote.get("dailyLow"),
-                "daily_trading_volume": quote.get("dailyTradingVolume"),
-                "is_trading_halt": quote.get("isTradingHalt"),
-                "generated_at": quote.get("generatedAt"),
+                "daily_high": quote.get("dailyHigh") or quote.get("daily_high"),
+                "daily_low": quote.get("dailyLow") or quote.get("daily_low"),
+                "daily_trading_volume": quote.get("dailyTradingVolume") or quote.get("daily_trading_volume"),
+                "is_trading_halt": quote.get("isTradingHalt") if "isTradingHalt" in quote else quote.get("is_trading_halt"),
+                "generated_at": quote.get("generatedAt") or quote.get("generated_at"),
+                "status": quote.get("quote_status") or ("live" if quote else "unavailable"),
+                "cache_age_seconds": quote.get("cache_age_seconds"),
             },
         }
 
