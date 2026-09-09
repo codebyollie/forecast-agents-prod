@@ -277,6 +277,27 @@ async def test_polymarket_event_grouping(search_service):
 
 
 @pytest.mark.asyncio
+async def test_polymarket_event_grouping_uses_group_item_titles(search_service):
+    search_service.kalshi_client.fetch_markets.return_value = ([], None)
+    markets = [
+        PolymarketMarket(
+            id=f"p{index}", question=f"Will option {index} win?", condition_id=f"c{index}",
+            slug=f"s{index}", resolution_source="Source", end_date_iso="2026-12-31T00:00:00Z",
+            active=True, closed=False, tokens=[{"outcome": "Yes"}],
+            raw_data={"outcomePrices": [str(price)], "groupItemTitle": label},
+        )
+        for index, (label, price) in enumerate((("Team A", 0.5), ("Draw", 0.2), ("Team B", 0.3)))
+    ]
+    search_service.gamma_client.list_events.return_value = [PolymarketEvent(
+        id="event", title="Team A vs. Team B", slug="event", description="", markets=markets, raw_data={}
+    )]
+
+    res = await search_service.browse_markets(venue="polymarket")
+
+    assert [outcome["label"] for outcome in res["results"][0]["outcomes"]] == ["Team A", "Draw", "Team B"]
+
+
+@pytest.mark.asyncio
 async def test_kalshi_browse_prefers_live_midpoint_and_liquid_market(search_service):
     stale_zero_volume = KalshiMarket(
         ticker="KXEMPTY",

@@ -744,9 +744,13 @@ class MarketSearchService:
                     for m in valid_markets:
                         price = float(m.outcome_prices[0]) if m.outcome_prices else None
                         if price:
-                            label = "Yes"
+                            label = str(m.raw_data.get("groupItemTitle") or "").strip()
                             if m.tokens and len(m.tokens) > 0:
-                                label = m.tokens[0].get("outcome", "Yes")
+                                token_label = str(m.tokens[0].get("outcome") or "").strip()
+                                if not label and token_label.lower() not in ("yes", "no"):
+                                    label = token_label
+                            if not label:
+                                label = m.question or "Outcome"
                             outcomes.append({"label": label, "price": round(price, 4)})
                         total_vol += float(m.volume)
                         total_vol_24h += float(m.raw_data.get("volume24hr") or 0)
