@@ -90,7 +90,8 @@ class KalshiClient:
             except (TypeError, ValueError):
                 return 0.0
 
-        volume = parse_number("volume", "volume_fp", "volume_24h_fp")
+        volume = parse_number("volume", "volume_fp")
+        volume_24h = parse_number("volume_24h", "volume_24h_fp")
         open_interest = parse_number("open_interest", "open_interest_fp")
         expiration_time = first_value(
             "expiration_time", "latest_expiration_time", "close_time", default=""
@@ -109,7 +110,10 @@ class KalshiClient:
             no_ask=no_ask,
             last_price=last_price,
             volume=volume,
+            volume_24h=volume_24h,
             open_interest=open_interest,
+            created_time=str(first_value("created_time", "open_time", default="") or ""),
+            updated_time=str(first_value("updated_time", default="") or ""),
             expiration_time=str(expiration_time or ""),
             result=data.get("result"),
             raw_data=data

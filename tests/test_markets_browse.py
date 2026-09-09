@@ -37,9 +37,10 @@ async def test_browse_markets_normalized_shape(search_service):
         status="open",
         last_price=0.75,
         volume=1000,
+        volume_24h=250,
         expiration_time="2026-12-31T00:00:00Z",
         event_ticker="KXTEST-EVENT",
-        raw_data={"open_time": "2026-01-01"}
+        raw_data={"open_time": "2026-01-01", "updated_time": "2026-01-02"}
     )
     search_service.kalshi_client.fetch_markets.return_value = ([mock_kalshi_market], "next_cursor_xyz")
     
@@ -58,7 +59,7 @@ async def test_browse_markets_normalized_shape(search_service):
         category="Politics",
         image="http://image.png",
         event_id="poly_ev_1",
-        raw_data={"createdAt": "2026-01-01", "outcomePrices": ["0.65", "0.35"]}
+        raw_data={"createdAt": "2026-01-01", "updatedAt": "2026-01-02", "volume24hr": 125, "outcomePrices": ["0.65", "0.35"]}
     )
     mock_poly_event = PolymarketEvent(
         id="poly_ev_1",
@@ -92,6 +93,7 @@ async def test_browse_markets_normalized_shape(search_service):
         assert "category" in r
         assert "current_price" in r
         assert "volume" in r
+        assert "volume_24h" in r
         assert "liquidity" in r
         assert "end_date" in r
         assert "slug" in r
@@ -177,6 +179,8 @@ async def test_polymarket_category_uses_event_tags(search_service):
         active=True,
         limit=96,
         offset=0,
+        order="volume24hr",
+        ascending=False,
         tag_slug="politics",
         related_tags=True,
     )
@@ -342,3 +346,25 @@ async def test_all_venues_keeps_kalshi_visible_when_polymarket_volume_is_larger(
 
     assert venues.count("Kalshi") == 2
     assert venues.count("Polymarket") == 2
+
+
+@pytest.mark.asyncio
+async def test_all_venues_applies_trending_sort_before_venue_quota(search_service):
+    search_service.kalshi_client.fetch_markets.return_value = ([
+        KalshiMarket(ticker="KXSTALE", title="Stale", status="open", last_price=0.4, volume=1000, volume_24h=0),
+        KalshiMarket(ticker="KXTREND", title="Trending", status="open", last_price=0.6, volume=10, volume_24h=500),
+    ], None)
+    poly_market = PolymarketMarket(
+        id="p1", question="Poly trending", condition_id="c1", slug="p1",
+        resolution_source="Source", end_date_iso="2026-12-31T00:00:00Z",
+        active=True, closed=False, volume=100,
+        raw_data={"outcomePrices": ["0.55"], "volume24hr": 100},
+    )
+    search_service.gamma_client.list_events.return_value = [PolymarketEvent(
+        id="e1", title="Poly trending", slug="e1", description="",
+        markets=[poly_market], raw_data={"volume24hr": 100},
+    )]
+
+    res = await search_service.browse_markets(venue="all", page_size=2, sort="trending")
+
+    assert {item["market_id"] for item in res["results"]} == {"KXTREND", "p1"}

@@ -516,11 +516,12 @@ class MarketSearchService:
         matched.sort(key=lambda item: item.pop("_match_score", 0), reverse=True)
         return matched[:limit]
 
-    async def browse_markets(self, venue: str = "all", category: Optional[str] = None, sort: str = "volume", page: int = 1, page_size: int = 24, q: Optional[str] = None) -> Dict[str, Any]:
+    async def browse_markets(self, venue: str = "all", category: Optional[str] = None, sort: str = "trending", page: int = 1, page_size: int = 24, q: Optional[str] = None) -> Dict[str, Any]:
         """
         Browse and list markets with pagination, sorting, and category filtering.
         """
         category = category if category and category.lower() != "all" else None
+        sort = sort if sort in ("trending", "volume", "ending_soon", "newest") else "trending"
 
         if q:
             # Delegate to existing keyword search (which does not paginate currently, so we return it as page 1)
@@ -630,6 +631,7 @@ class MarketSearchService:
                         "current_price": round(price, 4),
                         "category": cat,
                         "volume": float(m.volume),
+                        "volume_24h": float(m.volume_24h),
                         "liquidity": 0.0, # Kalshi liquidity is deprecated
                         "yes_bid": round(float(m.yes_bid), 4),
                         "yes_ask": round(float(m.yes_ask), 4),
@@ -642,7 +644,8 @@ class MarketSearchService:
                             {"label": "Yes", "price": round(price, 4)},
                             {"label": "No", "price": round(1.0 - price, 4)},
                         ],
-                        "_sort_date": m.raw_data.get("open_time", "")
+                        "created_at": m.created_time or m.raw_data.get("open_time", ""),
+                        "updated_at": m.updated_time or m.raw_data.get("updated_time", ""),
                     })
             return results, next_cursor
 
@@ -651,6 +654,13 @@ class MarketSearchService:
                 return [], False
 
             target_category = normalize_category(category or "") if category else None
+            poly_order = {
+                "trending": "volume24hr",
+                "volume": "volume",
+                "newest": "createdAt",
+                "ending_soon": "endDate",
+            }[sort]
+            poly_ascending = sort == "ending_soon"
             tag_slugs = POLYMARKET_CATEGORY_TAGS.get(target_category or "", [])
             used_tag_filter = False
             if tag_slugs:
@@ -659,6 +669,8 @@ class MarketSearchService:
                         active=True,
                         limit=max(page_size * 4, 50),
                         offset=0,
+                        order=poly_order,
+                        ascending=poly_ascending,
                         tag_slug=tag_slug,
                         related_tags=True,
                     )
@@ -679,11 +691,13 @@ class MarketSearchService:
             # events. This also powers the unfiltered directory.
             if not events:
                 p_limit = max(100, min(500, page_size * 10)) if category else (page_size if venue == "polymarket" else page_size * 2)
-                p_offset = 0 if category else (page - 1) * page_size
+                p_offset = 0 if category else (page - 1) * p_limit
                 events = await self.gamma_client.list_events(
                     active=True,
                     limit=p_limit,
                     offset=p_offset,
+                    order=poly_order,
+                    ascending=poly_ascending,
                 )
             else:
                 p_limit = max(page_size * 4, 50)
@@ -710,19 +724,22 @@ class MarketSearchService:
                             "current_price": round(price, 4),
                             "category": cat,
                             "volume": float(m.volume),
+                            "volume_24h": float(m.raw_data.get("volume24hr") or ev.raw_data.get("volume24hr") or 0),
                             "liquidity": float(m.liquidity),
                             "end_date": m.end_date_iso,
                             "slug": m.slug or ev.slug,
                             "image": m.image,
                             "event_id": m.event_id or ev.id,
                             "outcomes": _poly_outcomes(m),
-                            "_sort_date": m.raw_data.get("createdAt", "")
+                            "created_at": m.raw_data.get("createdAt", "") or ev.raw_data.get("createdAt", ""),
+                            "updated_at": m.raw_data.get("updatedAt", "") or ev.raw_data.get("updatedAt", ""),
                         })
                 else:
                     # Multiple markets in one event -> group them
                     m_main = valid_markets[0]
                     outcomes = []
                     total_vol = 0.0
+                    total_vol_24h = 0.0
                     total_liq = 0.0
                     for m in valid_markets:
                         price = float(m.outcome_prices[0]) if m.outcome_prices else None
@@ -732,6 +749,7 @@ class MarketSearchService:
                                 label = m.tokens[0].get("outcome", "Yes")
                             outcomes.append({"label": label, "price": round(price, 4)})
                         total_vol += float(m.volume)
+                        total_vol_24h += float(m.raw_data.get("volume24hr") or 0)
                         total_liq += float(m.liquidity)
                     
                     if outcomes:
@@ -742,13 +760,15 @@ class MarketSearchService:
                             "current_price": None,
                             "category": cat,
                             "volume": total_vol,
+                            "volume_24h": float(ev.raw_data.get("volume24hr") or total_vol_24h),
                             "liquidity": total_liq,
                             "end_date": m_main.end_date_iso,
                             "slug": ev.slug,
                             "image": m_main.image,
                             "event_id": ev.id,
                             "outcomes": outcomes,
-                            "_sort_date": m_main.raw_data.get("createdAt", "")
+                            "created_at": ev.raw_data.get("createdAt", "") or m_main.raw_data.get("createdAt", ""),
+                            "updated_at": ev.raw_data.get("updatedAt", "") or m_main.raw_data.get("updatedAt", ""),
                         })
             
             has_more = len(events) == p_limit
@@ -762,22 +782,22 @@ class MarketSearchService:
         if k_next_cursor:
             _KALSHI_CURSORS[f"{category or 'all'}_{sort}_{page + 1}"] = k_next_cursor
             
+        def sort_results(items: List[Dict[str, Any]]) -> None:
+            if sort == "ending_soon":
+                items.sort(key=lambda item: item.get("end_date") or "9999-12-31")
+            elif sort == "newest":
+                items.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+            elif sort == "trending":
+                items.sort(key=lambda item: (float(item.get("volume_24h") or 0), float(item.get("volume") or 0)), reverse=True)
+            else:
+                items.sort(key=lambda item: float(item.get("volume") or 0), reverse=True)
+
+        # Sort each venue before applying the venue quota. Previously the quota
+        # selected raw API order, which surfaced zero-volume Kalshi contracts.
+        sort_results(k_res)
+        sort_results(p_res)
         combined = k_res + p_res
-        
-        # Sorting
-        if sort == "ending_soon":
-            # Ascending by end_date, nulls last
-            combined.sort(key=lambda x: x["end_date"] or "9999-12-31")
-        elif sort == "newest":
-            # Descending by created date (we stashed it in _sort_date)
-            combined.sort(key=lambda x: x.get("_sort_date", ""), reverse=True)
-        else:
-            # volume desc
-            combined.sort(key=lambda x: x["volume"] or 0.0, reverse=True)
-            
-        # Strip _sort_date
-        for r in combined:
-            r.pop("_sort_date", None)
+        sort_results(combined)
             
         # If both venues are requested, a global volume sort can let
         # Polymarket's much larger notional volumes fill the entire page and
@@ -794,7 +814,7 @@ class MarketSearchService:
                     r for r in combined
                     if (r.get("venue"), r.get("market_id")) not in selected_keys
                 )
-            selected.sort(key=lambda x: x["volume"] or 0.0, reverse=True)
+            sort_results(selected)
             final_results = selected[:page_size]
         else:
             final_results = combined[:page_size]

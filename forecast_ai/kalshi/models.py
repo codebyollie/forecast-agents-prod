@@ -35,7 +35,10 @@ class KalshiMarket:
     no_ask: float = 0.0
     last_price: Optional[float] = None
     volume: float = 0.0
+    volume_24h: float = 0.0
     open_interest: float = 0.0
+    created_time: str = ""
+    updated_time: str = ""
     expiration_time: str = ""
     result: Optional[str] = None
     raw_data: Dict[str, Any] = field(default_factory=dict)
