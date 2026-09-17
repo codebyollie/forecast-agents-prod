@@ -62,6 +62,54 @@ class RobinhoodCryptoClient:
             return False
         return bool(token.get("contract_address"))
 
+    @staticmethod
+    def risk_snapshot(asset: Dict[str, Any]) -> Dict[str, Any]:
+        """Return deterministic market-quality metrics without implying token safety."""
+        liquidity = max(0.0, _number(asset.get("liquidity")) or 0.0)
+        volume = max(0.0, _number(asset.get("volume_24h")) or 0.0)
+        market_cap = max(0.0, _number(asset.get("market_cap")) or 0.0)
+        change = _number(asset.get("change_24h"))
+        liquidity_to_cap = liquidity / market_cap if market_cap > 0 else None
+        turnover = volume / market_cap if market_cap > 0 else None
+        volume_to_liquidity = volume / liquidity if liquidity > 0 else None
+        flags: List[str] = []
+        score = 100
+        if liquidity < 25_000:
+            score -= 35
+            flags.append("very_low_liquidity")
+        elif liquidity < 100_000:
+            score -= 18
+            flags.append("low_liquidity")
+        if liquidity_to_cap is not None and liquidity_to_cap < 0.01:
+            score -= 20
+            flags.append("thin_liquidity_vs_market_cap")
+        elif liquidity_to_cap is not None and liquidity_to_cap < 0.05:
+            score -= 10
+            flags.append("limited_liquidity_depth")
+        if volume_to_liquidity is not None and volume_to_liquidity > 3:
+            score -= 15
+            flags.append("high_turnover_vs_liquidity")
+        if change is not None and abs(change) > 50:
+            score -= 20
+            flags.append("extreme_24h_move")
+        elif change is not None and abs(change) > 25:
+            score -= 10
+            flags.append("high_24h_volatility")
+        if str(asset.get("quote_status") or "live") != "live":
+            score -= 15
+            flags.append("stale_quote_fallback")
+        score = max(0, min(100, score))
+        return {
+            "market_quality_score": score,
+            "risk_level": "high" if score < 50 else "medium" if score < 75 else "lower",
+            "flags": flags,
+            "liquidity_to_market_cap_pct": liquidity_to_cap * 100 if liquidity_to_cap is not None else None,
+            "turnover_24h_pct": turnover * 100 if turnover is not None else None,
+            "volume_to_liquidity": volume_to_liquidity,
+            "absolute_change_24h_pct": abs(change) if change is not None else None,
+            "methodology": "Market structure only; contract, issuer and smart-contract risks require separate review.",
+        }
+
     def _pool_candidates(self, payload: Dict[str, Any], observed_at: str) -> List[Dict[str, Any]]:
         pools = payload.get("data") if isinstance(payload, dict) else None
         included = payload.get("included") if isinstance(payload, dict) else None
@@ -102,7 +150,7 @@ class RobinhoodCryptoClient:
             market_cap = _number(attributes.get("market_cap_usd"))
             fdv = _number(attributes.get("fdv_usd"))
             contract = str(token["contract_address"])
-            rows.append({
+            row = {
                 **token,
                 "price": price,
                 "market_cap": market_cap or fdv,
@@ -118,7 +166,9 @@ class RobinhoodCryptoClient:
                 "network_name": "Robinhood Chain",
                 "chain_id": 4663,
                 "risk_tier": "experimental",
-            })
+            }
+            row["risk"] = self.risk_snapshot(row)
+            rows.append(row)
         return rows
 
     async def _fetch_pools(self) -> List[Dict[str, Any]]:

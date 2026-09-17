@@ -28,6 +28,27 @@ def test_catalog_excludes_stock_tokens_and_wrapped_quote_assets():
     assert RobinhoodCryptoClient._is_ecosystem_coin({**_coin(), "name": "NVIDIA Robinhood Token"}) is False
 
 
+def test_coin_risk_snapshot_exposes_liquidity_and_turnover_quality():
+    healthy = RobinhoodCryptoClient.risk_snapshot(_coin())
+    assert healthy["market_quality_score"] == 100
+    assert healthy["risk_level"] == "lower"
+    assert healthy["liquidity_to_market_cap_pct"] == 25
+    assert healthy["turnover_24h_pct"] == 10
+
+    thin = RobinhoodCryptoClient.risk_snapshot({
+        **_coin(),
+        "liquidity": 5_000,
+        "market_cap": 5_000_000,
+        "volume_24h": 50_000,
+        "change_24h": 70,
+        "quote_status": "last_known_good",
+    })
+    assert thin["risk_level"] == "high"
+    assert "very_low_liquidity" in thin["flags"]
+    assert "extreme_24h_move" in thin["flags"]
+    assert "stale_quote_fallback" in thin["flags"]
+
+
 @pytest.mark.asyncio
 async def test_catalog_caches_live_top_ten_and_falls_back_to_last_good():
     client = RobinhoodCryptoClient(ttl_seconds=30)
