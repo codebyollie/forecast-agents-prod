@@ -15,6 +15,7 @@ from ..pipelines.forecast import ForecastPipeline
 from ..polymarket.gamma import GammaClient
 from ..services.market_search import MarketSearchService
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
+from ..services.robinhood_crypto import RobinhoodCryptoClient
 from ..proof.publisher import ProofPublisher, get_proof_publisher_status
 
 router = APIRouter()
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 _pipeline: Optional[ForecastPipeline] = None
 _proof_publisher: Optional[ProofPublisher] = None
 _stock_tokens: Optional[RobinhoodStockTokenClient] = None
+_crypto_assets: Optional[RobinhoodCryptoClient] = None
 
 _IP_RATE_LIMITS: Dict[str, List[float]] = {}
 MAX_PER_HOUR = max(1, int(os.getenv("PUBLIC_RATE_LIMIT_PER_HOUR", "50")))
@@ -112,6 +114,13 @@ def get_stock_token_client(pipeline: ForecastPipeline = Depends(get_pipeline)) -
     if _stock_tokens is None or _stock_tokens.base_url != configured_url.rstrip("/"):
         _stock_tokens = RobinhoodStockTokenClient(base_url=configured_url)
     return _stock_tokens
+
+
+def get_crypto_client() -> RobinhoodCryptoClient:
+    global _crypto_assets
+    if _crypto_assets is None:
+        _crypto_assets = RobinhoodCryptoClient()
+    return _crypto_assets
 
 
 def _rwa_market_matches(asset: Dict[str, Any], markets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -398,6 +407,66 @@ async def rwa_asset_detail(
         "related_market_method": "thematic candidate, not a direct company-market match" if topic else None,
         "warnings": list(dict.fromkeys(warnings)),
         "source": "Robinhood Chain Stock Token APIs",
+    }
+
+
+@router.get("/coins/assets")
+async def browse_coin_assets(
+    request: Request,
+    q: Optional[str] = Query(None, description="Coin symbol or name"),
+    limit: int = Query(20, ge=1, le=50),
+    crypto: RobinhoodCryptoClient = Depends(get_crypto_client),
+) -> Dict[str, Any]:
+    """Browse the Top 10 native Robinhood Chain ecosystem coins."""
+    enforce_request_access(request)
+    query = (q or "").strip().lower()
+    assets = await crypto.markets()
+    visible = [
+        asset for asset in assets
+        if not query or query in str(asset.get("symbol") or "").lower() or query in str(asset.get("name") or "").lower()
+    ]
+    return {
+        "assets": visible[:limit],
+        "total": len(visible),
+        "source": "GeckoTerminal Robinhood Chain pools",
+        "availability_notice": "Experimental onchain assets. Rankings can change with liquidity and market activity.",
+    }
+
+
+@router.get("/coins/assets/{symbol}")
+async def coin_asset_detail(
+    symbol: str,
+    request: Request,
+    crypto: RobinhoodCryptoClient = Depends(get_crypto_client),
+    search_service: MarketSearchService = Depends(get_search_service),
+) -> Dict[str, Any]:
+    """Return one supported coin and only transparently matched event markets."""
+    enforce_request_access(request)
+    asset = await crypto.asset(symbol)
+    if asset is None:
+        raise HTTPException(status_code=404, detail=f"Coin '{symbol.upper()}' was not found.")
+    warnings: List[str] = []
+    try:
+        results = await asyncio.wait_for(
+            search_service.search_markets(query=f"{asset['name']} {asset['symbol']}", limit=20),
+            timeout=12,
+        )
+    except Exception as exc:
+        logger.warning("Coin market search unavailable for %s: %s", asset["symbol"], exc)
+        results = []
+        warnings.append("Prediction-market context is temporarily unavailable.")
+    direct = _rwa_market_matches(
+        {"tokenSymbol": asset["symbol"], "tokenName": asset["name"]},
+        results,
+    )
+    if asset.get("quote_status") == "last_known_good":
+        warnings.append("Showing the most recent verified market quote while live pricing recovers.")
+    return {
+        "asset": asset,
+        "prediction_markets": direct,
+        "warnings": warnings,
+        "source": "GeckoTerminal Robinhood Chain pools",
+        "availability_notice": "Experimental onchain assets. Verify the contract address before any execution.",
     }
 
 @router.post("/predict")

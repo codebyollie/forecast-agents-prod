@@ -15,6 +15,7 @@ from ..config import ForecastConfig
 from ..config_store import ConfigStore
 from ..proof.publisher import ProofPublisher
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
+from ..services.robinhood_crypto import RobinhoodCryptoClient
 from ..services.activity_resolver import resolve_website_activities
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class ApiServer:
         routes._stock_tokens = RobinhoodStockTokenClient(
             base_url=self.config.robinhood_chain.stock_token_api_url,
         )
+        routes._crypto_assets = RobinhoodCryptoClient()
         self.app.include_router(routes.router)
 
         @self.app.on_event("startup")

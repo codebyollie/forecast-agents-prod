@@ -21,6 +21,7 @@ from ..services.opportunity_radar import build_opportunity_radar
 from ..services.market_search import MarketSearchService
 from ..services.outcome_graph import OutcomeGraphService
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
+from ..services.robinhood_crypto import RobinhoodCryptoClient
 from ..proof.ledger import (
     build_forecast_envelope,
     build_resolution_hash,
@@ -40,6 +41,7 @@ SPECIALIST_AGENT_MAP = {
 
 RWA_FORECAST_HORIZONS = {1, 7, 30, 90, 180}
 RWA_FORECAST_HORIZON_LABEL = "24-hour, 7, 30, 90, or 180-day"
+PRICE_DIRECTION_MODES = {"rwa", "coin"}
 
 
 def resolve_forecast_closes_at(
@@ -49,18 +51,18 @@ def resolve_forecast_closes_at(
     *,
     now: Optional[datetime] = None,
 ) -> Optional[str]:
-    """Return the immutable resolution timestamp used by an RWA proof."""
+    """Return the immutable resolution timestamp used by an asset-price proof."""
     if market_closes_at:
         return market_closes_at
-    if str(analysis_mode or "").strip().lower() != "rwa":
+    if str(analysis_mode or "").strip().lower() not in PRICE_DIRECTION_MODES:
         return None
 
     try:
         horizon = int(forecast_horizon_days or 0)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"RWA forecasts require a {RWA_FORECAST_HORIZON_LABEL} horizon.") from exc
+        raise ValueError(f"Asset outlooks require a {RWA_FORECAST_HORIZON_LABEL} horizon.") from exc
     if horizon not in RWA_FORECAST_HORIZONS:
-        raise ValueError(f"RWA forecasts require a {RWA_FORECAST_HORIZON_LABEL} horizon.")
+        raise ValueError(f"Asset outlooks require a {RWA_FORECAST_HORIZON_LABEL} horizon.")
 
     started_at = now or datetime.now(timezone.utc)
     if started_at.tzinfo is None:
@@ -74,6 +76,10 @@ def resolve_forecast_closes_at(
 RWA_ALLOWED_SOURCES = {
     "news", "rss", "twitter", "reddit", "blockchain", "kalshi",
     "tavily", "sec_edgar", "fred", "perigon", "exa",
+}
+COIN_ALLOWED_SOURCES = {
+    "news", "rss", "twitter", "reddit", "blockchain", "kalshi",
+    "tavily", "fred", "perigon", "exa",
 }
 
 
@@ -254,6 +260,7 @@ class ForecastPipeline:
         if config.robinhood_chain.stock_tokens_enabled:
             stock_tokens = RobinhoodStockTokenClient(config.robinhood_chain.stock_token_api_url)
         self.stock_tokens = stock_tokens
+        self.crypto_assets = RobinhoodCryptoClient()
         self.outcome_graph = OutcomeGraphService(market_search, stock_tokens)
         self._init_agents()
 
@@ -307,7 +314,7 @@ class ForecastPipeline:
         """
         runtime = normalize_agent_runtime(agent_runtime)
         normalized_mode = str(analysis_mode or "").strip().lower()
-        if normalized_mode not in {"", "rwa"}:
+        if normalized_mode not in {"", "rwa", "coin"}:
             raise ValueError("Unsupported analysis mode.")
         normalized_symbol = str(asset_symbol or "").strip().upper()
         normalized_reference_price = None
@@ -327,6 +334,19 @@ class ForecastPipeline:
                 or normalized_reference_price <= 0
             ):
                 raise ValueError("A verifiable Robinhood reference price is unavailable.")
+        elif normalized_mode == "coin":
+            if not normalized_symbol:
+                raise ValueError("Coin outlooks require an asset symbol.")
+            reference_quote = await self.crypto_assets.current_price(normalized_symbol)
+            normalized_reference_price = (
+                float(reference_quote.get("midpoint")) if reference_quote else None
+            )
+            if (
+                normalized_reference_price is None
+                or not math.isfinite(normalized_reference_price)
+                or normalized_reference_price <= 0
+            ):
+                raise ValueError("A verifiable crypto reference price is unavailable.")
         market_closes_at = resolve_forecast_closes_at(
             market_closes_at,
             normalized_mode,
@@ -340,7 +360,11 @@ class ForecastPipeline:
             question,
             market_id=evidence_market_id,
             venue=evidence_venue,
-            allowed_sources=RWA_ALLOWED_SOURCES if normalized_mode == "rwa" else None,
+            allowed_sources=(
+                RWA_ALLOWED_SOURCES if normalized_mode == "rwa"
+                else COIN_ALLOWED_SOURCES if normalized_mode == "coin"
+                else None
+            ),
         )
 
         # FactsAI is a paid partner source. Fetch it once per forecast and share
@@ -472,7 +496,7 @@ class ForecastPipeline:
         # An RWA outlook can use a prediction market as supporting evidence,
         # but that market's resolution must never become the Stock Token
         # forecast's resolution condition.
-        if not market_closes_at and normalized_mode != "rwa":
+        if not market_closes_at and normalized_mode not in PRICE_DIRECTION_MODES:
             selected_market = next((item for item in evidence if item.source_name in ("kalshi", "polymarket")), None)
             if selected_market:
                 market_closes_at = (selected_market.metadata or {}).get("expiration_time")
@@ -482,7 +506,7 @@ class ForecastPipeline:
         result.metadata["market_closes_at"] = market_closes_at
         if normalized_mode:
             result.metadata["analysis_mode"] = normalized_mode
-        if normalized_mode == "rwa":
+        if normalized_mode in PRICE_DIRECTION_MODES:
             result.metadata["reference_price"] = normalized_reference_price
             result.metadata["asset_symbol"] = normalized_symbol
             result.metadata["forecast_horizon_days"] = int(forecast_horizon_days or 0)
@@ -577,7 +601,7 @@ class ForecastPipeline:
         return result
 
     async def resolve_due_forecasts(self, *, now: Optional[datetime] = None) -> Dict[str, Any]:
-        """Resolve due markets and RWA prices from authoritative, non-LLM data."""
+        """Resolve due markets and asset prices from authoritative, non-LLM data."""
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
@@ -611,12 +635,12 @@ class ForecastPipeline:
                 "_analysis_result": analysis_results.get(analysis_id, {}),
             }
 
-        rwa_entries: List[Dict[str, Any]] = []
+        price_entries: List[Dict[str, Any]] = []
         market_groups: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
         for entry in due.values():
             analysis = entry.get("_analysis_result") or entry.get("metadata") or {}
-            if str(analysis.get("analysis_mode") or "").lower() == "rwa":
-                rwa_entries.append(entry)
+            if str(analysis.get("analysis_mode") or "").lower() in PRICE_DIRECTION_MODES:
+                price_entries.append(entry)
             else:
                 key = (str(entry.get("market_id") or ""), str(entry.get("venue") or ""))
                 if key[0]:
@@ -624,18 +648,20 @@ class ForecastPipeline:
 
         resolved_count = 0
         resolved_rwa = 0
+        resolved_coins = 0
         unresolved: List[Dict[str, Any]] = []
         queued_onchain = 0
 
-        for entry in rwa_entries:
+        for entry in price_entries:
             analysis = entry.get("_analysis_result") or entry.get("metadata") or {}
+            analysis_mode = str(analysis.get("analysis_mode") or "").lower()
             market_id = str(entry.get("market_id") or "")
             forecast_id = str(entry.get("forecast_id") or "")
             analysis_id = str(entry.get("analysis_id") or "")
             symbol = str(
                 analysis.get("asset_symbol")
                 or analysis.get("market_ticker")
-                or self._rwa_symbol_from_market_id(market_id)
+                or self._asset_symbol_from_market_id(market_id)
                 or ""
             ).upper()
             try:
@@ -647,20 +673,20 @@ class ForecastPipeline:
                 or not symbol
                 or not math.isfinite(reference_price)
                 or reference_price <= 0
-                or self.stock_tokens is None
+                or (analysis_mode == "rwa" and self.stock_tokens is None)
             ):
                 unresolved.append({
                     "forecast_id": forecast_id,
                     "market_id": market_id,
                     "venue": entry.get("venue"),
-                    "reason": "missing_rwa_resolution_context",
+                    "reason": "missing_asset_resolution_context",
                 })
                 continue
 
             existing_resolution = (
                 analysis.get("resolution")
                 if isinstance(analysis.get("resolution"), dict)
-                and analysis.get("resolution", {}).get("resolution_type") == "rwa_price"
+                and analysis.get("resolution", {}).get("resolution_type") in {"rwa_price", "coin_price"}
                 else None
             )
             quote = None
@@ -675,9 +701,10 @@ class ForecastPipeline:
                 }
             else:
                 try:
-                    quote = await self.stock_tokens.resolution_price(symbol, entry["_close_time"])
+                    price_client = self.stock_tokens if analysis_mode == "rwa" else self.crypto_assets
+                    quote = await price_client.resolution_price(symbol, entry["_close_time"])
                 except Exception as exc:
-                    logger.warning("[ForecastPipeline] RWA resolution quote failed for %s: %s", symbol, exc)
+                    logger.warning("[ForecastPipeline] Asset resolution quote failed for %s: %s", symbol, exc)
                     quote = None
             if quote is None:
                 unresolved.append({
@@ -710,7 +737,7 @@ class ForecastPipeline:
                 if isinstance(analysis.get("proof"), dict) else []
             )
             details = {
-                "resolution_type": "rwa_price",
+                "resolution_type": "rwa_price" if analysis_mode == "rwa" else "coin_price",
                 "outcome": outcome,
                 "direction": "higher" if outcome else "not_higher",
                 "asset_symbol": symbol,
@@ -743,7 +770,7 @@ class ForecastPipeline:
                         proof_status="resolved_offchain",
                     )
                 except Exception as exc:
-                    logger.warning("[ForecastPipeline] RWA result update failed for %s: %s", forecast_id, exc)
+                    logger.warning("[ForecastPipeline] Asset result update failed for %s: %s", forecast_id, exc)
                     unresolved.append({
                         "forecast_id": forecast_id,
                         "market_id": market_id,
@@ -752,7 +779,10 @@ class ForecastPipeline:
                     })
                     continue
             resolved_count += 1
-            resolved_rwa += 1
+            if analysis_mode == "rwa":
+                resolved_rwa += 1
+            else:
+                resolved_coins += 1
             try:
                 resolution_hash = build_rwa_resolution_hash(
                     forecast_id,
@@ -779,7 +809,7 @@ class ForecastPipeline:
                         )
                     queued_onchain += 1
             except Exception as exc:
-                logger.warning("[ForecastPipeline] RWA onchain queue failed for %s: %s", forecast_id, exc)
+                logger.warning("[ForecastPipeline] Asset onchain queue failed for %s: %s", forecast_id, exc)
                 unresolved.append({
                     "forecast_id": forecast_id,
                     "market_id": market_id,
@@ -839,9 +869,11 @@ class ForecastPipeline:
 
         return {
             "checked_markets": len(market_groups),
-            "checked_rwa_forecasts": len(rwa_entries),
+            "checked_rwa_forecasts": len([entry for entry in price_entries if str((entry.get("_analysis_result") or entry.get("metadata") or {}).get("analysis_mode") or "").lower() == "rwa"]),
+            "checked_coin_forecasts": len([entry for entry in price_entries if str((entry.get("_analysis_result") or entry.get("metadata") or {}).get("analysis_mode") or "").lower() == "coin"]),
             "resolved_forecasts": resolved_count,
             "resolved_rwa_forecasts": resolved_rwa,
+            "resolved_coin_forecasts": resolved_coins,
             "queued_onchain": queued_onchain,
             "still_unresolved": unresolved,
         }
@@ -859,11 +891,16 @@ class ForecastPipeline:
         return parsed if parsed <= now else None
 
     @staticmethod
-    def _rwa_symbol_from_market_id(market_id: str) -> Optional[str]:
+    def _asset_symbol_from_market_id(market_id: str) -> Optional[str]:
         normalized = str(market_id or "").strip().lower()
-        if not normalized.startswith("rwa-") or "-" not in normalized[4:]:
-            return None
-        return normalized[4:].rsplit("-", 1)[0].upper() or None
+        for prefix in ("rwa-", "coin-"):
+            if normalized.startswith(prefix) and "-" in normalized[len(prefix):]:
+                return normalized[len(prefix):].rsplit("-", 1)[0].upper() or None
+        return None
+
+    @staticmethod
+    def _rwa_symbol_from_market_id(market_id: str) -> Optional[str]:
+        return ForecastPipeline._asset_symbol_from_market_id(market_id)
 
     async def queue_onchain_resolution(
         self,

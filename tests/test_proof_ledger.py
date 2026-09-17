@@ -124,6 +124,30 @@ def test_rwa_envelope_commits_server_captured_resolution_spec():
     }
 
 
+def test_coin_envelope_commits_contract_price_resolution_spec():
+    result = _forecast()
+    result.metadata.update({
+        "analysis_mode": "coin",
+        "asset_symbol": "PONS",
+        "reference_price": 0.000042,
+        "reference_price_source": "https://www.geckoterminal.com/robinhood/tokens/0x39dbed3a2bd333467115de45665cc57f813c4571",
+        "reference_price_source_timestamp": "2030-01-01T12:00:00Z",
+        "forecast_horizon_days": 1,
+    })
+
+    proof = build_forecast_envelope(
+        result,
+        "Will PONS be higher?",
+        "Robinhood Chain",
+        "Robinhood Coins",
+        "2030-01-02T12:00:00Z",
+    )
+
+    assert proof["payload"]["resolution_spec"]["type"] == "coin_price_direction"
+    assert proof["payload"]["resolution_spec"]["asset_symbol"] == "PONS"
+    assert proof["payload"]["resolution_spec"]["reference_price"] == 0.000042
+
+
 def test_envelope_is_not_queued_without_a_deployed_registry():
     proof = build_forecast_envelope(
         _forecast(), "Question?", "Polymarket", "Politics", "2030-01-01"

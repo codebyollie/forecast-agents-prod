@@ -143,9 +143,10 @@ def build_forecast_envelope(
             for prediction in sorted(result.individual_predictions, key=lambda item: item.agent_name)
         ],
     }
-    if str(result.metadata.get("analysis_mode") or "").lower() == "rwa":
+    analysis_mode = str(result.metadata.get("analysis_mode") or "").lower()
+    if analysis_mode in {"rwa", "coin"}:
         payload["resolution_spec"] = {
-            "type": "rwa_price_direction",
+            "type": "rwa_price_direction" if analysis_mode == "rwa" else "coin_price_direction",
             "asset_symbol": str(result.metadata.get("asset_symbol") or "").upper(),
             "reference_price": round(float(result.metadata.get("reference_price") or 0), 8),
             "reference_price_source": result.metadata.get("reference_price_source"),
