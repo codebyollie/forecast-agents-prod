@@ -1,140 +1,145 @@
-# 🔮 Forecast AI
+# Forecast AI
 
-### Open-Source Multi-Agent Intelligence Infrastructure for Prediction Markets
+### Multi-agent forecasting intelligence for Robinhood assets and prediction markets
 
-**Powered by $FORAI CA: 0xcc9c1ec224c3824ae5ea699ec72ef5fad4165e49**
+[![Website](https://img.shields.io/badge/Website-forai.tech-7C5CFC?style=for-the-badge)](https://forai.tech)
+[![Robinhood](https://img.shields.io/badge/Robinhood-Intelligence-00C805?style=for-the-badge)](https://forai.tech/app/rwa)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](#)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge)](#)
-[![Robinhood Predict](https://img.shields.io/badge/Robinhood-Predict-green?style=for-the-badge)](#)
+**Forecast AI** turns fragmented market data into evidence-backed probability forecasts. Seven specialized AI agents research the same question independently, while a consensus engine combines their signals into one calibrated forecast with confidence, risks, counter-signals, and source attribution.
 
-<p align="center">
-  <a href="https://railway.app/template/new?template=https://github.com/codebyollie/forecast-agents">
-    <img src="https://railway.app/button.svg" alt="Deploy on Railway">
-  </a>
-  <a href="https://render.com/deploy?repo=https://github.com/codebyollie/forecast-agents">
-    <img src="https://render.com/images/deploy-to-render.svg" alt="Deploy to Render">
-  </a>
-</p>
+The product is built around **Robinhood intelligence**: Stock Token and ecosystem-coin outlooks, verifiable forecast proofs, permanent agent track records, and user-controlled recommendation hand-off. Live Polymarket and Kalshi data extends the system with prediction-market prices, liquidity, orderbooks, and cross-market context.
 
----
+## Robinhood intelligence
 
-**Forecast AI** is a fully open-source, BYOK (Bring-Your-Own-Keys) multi-agent intelligence infrastructure for Prediction Markets (Kalshi, Robinhood Predict, and Polymarket). It enables specialized autonomous AI agents to continuously monitor real-world events, aggregate multi-modal data, reason collaboratively, and generate explainable probability forecasts.
+- **Stock Token outlooks** — browse Robinhood Stock Tokens, inspect live quote context, and generate `Higher / Not Higher` forecasts across 24H, 7D, 30D, 90D, and 180D horizons.
+- **Robinhood Coins intelligence** — discover leading ecosystem assets from live pools and produce price-direction outlooks with fixed reference prices and automatic resolution.
+- **Forecast AI Proof Network** — commits forecast hashes before outcomes are known, records resolutions, calculates Brier Scores, and builds verifiable agent and category track records on Robinhood.
+- **RWA + event context** — connects tokenized assets with relevant events and prediction markets without treating correlation as proof.
+- **Agentic recommendation hand-off** — formats consensus results as `BUY_YES`, `BUY_NO`, or `HOLD` recommendations for a user's authenticated Robinhood Agentic Trading MCP session. Forecast AI never stores brokerage credentials or execution keys.
 
-Instead of relying on a single static LLM, Forecast AI deploys **7 domain-specialized agents** (News, Social, Reddit, Research, Macro, On-chain, and Market Agents). A **Consensus Engine** aggregates their analysis into a calibrated probability forecast and formats trade recommendations for hand-off to your personal **Robinhood Agentic Trading MCP** session.
+## Seven agents. One consensus.
 
----
+| Agent | Focus |
+| --- | --- |
+| News | Breaking news, primary reporting, and event updates |
+| Social | Narrative momentum and public conversation |
+| Reddit | Community signals and discussion quality |
+| Research | Deep research, citations, and competing evidence |
+| Macro | Rates, policy, economics, and cross-asset context |
+| On-chain | Blockchain activity, tokenized assets, and verifiable data |
+| Market | Prices, liquidity, spreads, orderbooks, and market structure |
 
-## 🚀 Quick Setup Guide
-
-Forecast AI is designed to be hosted on your own infrastructure using your own API keys. 
-
-### 1. Clone & Install
-```bash
-git clone https://github.com/codebyollie/forecast-agents.git
-cd forecast-agents
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment (Bring-Your-Own-Keys)
-Copy the example environment file:
-```bash
-cp .env.example .env
-```
-Open `.env` and add your required API keys. You can use any combination of LLM providers and Data APIs:
-* **LLMs**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OLLAMA_API_BASE`
-* **Data Sources**: `TAVILY_API_KEY`, `FACTSAI_API_KEY`, `NEWS_API_KEY`, `TWITTER_BEARER_TOKEN`
-
-### 3. Run the CLI or Server
-Run an interactive setup wizard to verify your keys:
-```bash
-forecast setup
-```
-Or immediately start the API server and market surveillance loop:
-```bash
-forecast run --category crypto
-```
-
----
-
-## 🏗 System Architecture & Smart Orchestration
-
-Forecast AI features a state-of-the-art **Smart Orchestrator** to prevent API spam and reduce costs:
-
-1. **Smart Routing**: The `SourceManager` dynamically routes queries to the correct APIs. (e.g., deep research queries hit FactsAI + Tavily; crypto queries hit Blockchain + News).
-2. **Local Caching**: All API responses are cached locally with a TTL mechanism so that 7 agents querying similar data only trigger a single API charge.
-3. **Synthesis Layer**: Raw search results are synthesized, deduplicated, and fact-checked by a lightweight LLM *before* being handed to the Agent cluster.
+Each agent receives role-specific evidence instead of the same generic prompt. The consensus engine then weights the independent forecasts, measures disagreement, calibrates confidence, and produces a structured result rather than a black-box answer.
 
 ```mermaid
-graph TD
-    subgraph Smart Orchestrator & Sources
-        Router[Smart Router]
-        Cache[(Local JSON Cache)]
-        Synth[LLM Synthesis Layer]
-        
-        Router --> Cache
-        Cache -->|Miss| kalshi[Kalshi / Polymarket]
-        Cache -->|Miss| tavily[Tavily API]
-        Cache -->|Miss| factsai[FactsAI Deep Research]
-        Cache -->|Miss| social[Reddit / Twitter]
-        
-        kalshi & tavily & factsai & social --> Synth
-    end
+flowchart LR
+    R[Robinhood assets] --> S[Evidence router]
+    P[Polymarket] --> S
+    K[Kalshi] --> S
+    D[Research and data sources] --> S
 
-    subgraph 7 Specialized AI Agents
-        A_News[News Agent]
-        A_Social[Social Agent]
-        A_Reddit[Reddit Agent]
-        A_Research[Research Agent]
-        A_Macro[Macro Agent]
-        A_Onchain[On-chain Agent]
-        A_Market[Market Agent]
-    end
-
-    subgraph Consensus Engine
-        CE[Consensus Engine]
-        Calibrator[Calibrator & Anomaly Detector]
-        Memory[Memory Store & Reputations]
-    end
-
-    Synth --> A_News & A_Social & A_Reddit & A_Research & A_Macro & A_Onchain & A_Market
-    A_News & A_Social & A_Reddit & A_Research & A_Macro & A_Onchain & A_Market -->|Individual Forecasts| CE
-    CE --> Calibrator
-    Calibrator -->|Consensus Probability| Memory
-    Memory --> API[Public REST API]
+    S --> A[7 specialized agents]
+    A --> C[Consensus engine]
+    C --> O[Probability, confidence and risk]
+    O --> N[Proof Network on Robinhood]
+    N --> T[Scores and track records]
 ```
 
----
+## Prediction-market intelligence
 
-## 🤖 LLM Providers & Automatic Fallback Chain
+- Live market discovery and search across **Polymarket** and **Kalshi**.
+- Real-time prices, bid/ask spreads, liquidity, volume, outcomes, and orderbook context.
+- **Opportunity Radar** comparing market probability with the agent consensus.
+- Cross-market matching for related contracts and conflicting prices.
+- Optional research, social, smart-money, and trader-intelligence providers with visible provider status and graceful fallbacks.
+- Read-only market integrations by default; no server-side wallet signing.
 
-Forecast AI features an enterprise-grade LLM provider routing and automatic fallback system:
+## $FORAI
 
-- **Default Pair**: Primary **OpenAI** (`gpt-4o`) paired with **Google Gemini** (`gemini-flash-latest`).
-- **Automatic Fallback Chain**: If the primary provider encounters rate limits (HTTP 429), quota exhaustion (HTTP 429/402), or server errors (HTTP 500+), the system automatically retries across backup providers without failing the forecast.
-- **Supported Providers**: OpenAI, Google Gemini, Anthropic Claude, OpenRouter, and local Ollama.
+`$FORAI` is the utility token behind Forecast AI access and agent identity.
 
----
+**Contract:** [`0xcc9c1ec224c3824ae5ea699ec72ef5fad4165e49`](https://robinhoodchain.blockscout.com/token/0xcc9c1ec224c3824ae5ea699ec72ef5fad4165e49)
 
-## 🖥️ Full CLI Command Reference
+**AgentBonding:** [`0xEcaB4F395165881519510658EFAc56d1516f8181`](https://robinhoodchain.blockscout.com/address/0xEcaB4F395165881519510658EFAc56d1516f8181)
 
-All commands are implemented in `forecast_ai/cli/main.py`:
+- Holder tiers receive higher product usage limits.
+- A user locks **200,000 $FORAI** to activate a custom agent or seven-agent swarm.
+- Locked tokens are not spent or burned and remain locked while the agent is active.
+- Unlocking retires the agent identity, while its forecasts, Brier Scores, and reputation remain permanently verifiable.
+- Snapshot-based governance gives holders token-weighted voting power without changing an agent's forecast weight.
+- Holder campaigns can provide enhanced rewards and participation benefits.
 
-| Command | Arguments / Flags | Description |
-| :--- | :--- | :--- |
-| `forecast setup` | None | Runs the interactive first-time setup wizard. |
-| `forecast predict` | `<query>` `--market-id <id>` | Runs a one-shot multi-agent consensus forecast for a query. |
-| `forecast run` | `--category <cat>` | Launches surveillance watching loops and the FastAPI server. |
-| `forecast watch` | `--category <cat>` | Runs standalone market surveillance without launching the API server. |
-| `forecast sources` | None | Lists all registered data sources (Tavily, FactsAI, Reddit, News, etc.). |
-| `forecast agents` | None | Displays status (ENABLED/DISABLED), weights, and providers for all 7 agents. |
-| `forecast providers` | None | Lists configured LLM providers. |
-| `forecast server` | None | Starts the FastAPI HTTP server manually on host/port. |
+The included `AgentBonding` contract enforces the activation bond without an admin token-withdrawal function.
 
----
+## Open-source infrastructure
 
-## 🛡 License
+This repository contains the production forecasting engine:
 
-Forecast AI is open-source software licensed under the **Apache 2.0 License**.
+- Python CLI and FastAPI service;
+- Robinhood Stock Token and Coins intelligence;
+- Polymarket and Kalshi market-data clients;
+- seven specialized agents and the consensus engine;
+- memory, calibration, Brier scoring, and reputation tracking;
+- ForecastRegistry and AgentBonding smart contracts;
+- Docker, Railway, and Render deployment configuration.
+
+Forecast AI is **BYOK**. It supports OpenAI, Anthropic, Gemini, OpenRouter, and local Ollama models, with optional external data providers and automatic fallbacks.
+
+## Quick start
+
+Requirements: Python 3.10+ and Git.
+
+```bash
+git clone https://github.com/codebyollie/forecast-agents-prod.git
+cd forecast-agents-prod
+python -m venv .venv
+```
+
+Activate the environment and install:
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+python -m pip install -e .
+cp .env.example .env
+forecast setup
+```
+
+Run the API:
+
+```bash
+forecast server
+```
+
+Or generate a forecast from the CLI:
+
+```bash
+forecast predict "Will the selected event resolve YES?" --market-id MARKET_ID
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Agents](docs/agents.md)
+- [Robinhood Agentic hand-off](docs/robinhood_agentic.md)
+- [Robinhood Coins intelligence](docs/robinhood-coins.md)
+- [Polymarket](docs/polymarket.md)
+- [Kalshi](docs/kalshi.md)
+- [Consensus](docs/consensus.md)
+- [Smart contracts](contracts/README.md)
+
+## Links
+
+- [Product](https://forai.tech)
+- [Documentation](https://forai.tech/docs)
+- [Open-source setup](https://forai.tech/install)
+
+## License
+
+Forecast AI is released under the [MIT License](LICENSE).
