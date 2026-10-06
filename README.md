@@ -60,7 +60,7 @@ flowchart LR
 
 `$FORAI` is the utility token behind Forecast AI access and agent identity.
 
-**Contract:** [`0xcc9c1ec224c3824ae5ea699ec72ef5fad4165e49`](https://robinhoodchain.blockscout.com/token/0xcc9c1ec224c3824ae5ea699ec72ef5fad4165e49)
+**Contract:** [`0xa2e571ad3535E4eA43daa427Ef25C2bcFc743C67`](https://robinhoodchain.blockscout.com/token/0xa2e571ad3535E4eA43daa427Ef25C2bcFc743C67)
 
 **AgentBonding:** [`0xEcaB4F395165881519510658EFAc56d1516f8181`](https://robinhoodchain.blockscout.com/address/0xEcaB4F395165881519510658EFAc56d1516f8181)
 
