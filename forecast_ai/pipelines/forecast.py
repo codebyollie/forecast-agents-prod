@@ -18,6 +18,8 @@ from ..consensus import ConsensusEngine
 from ..memory import MemoryStore
 from ..agents import NewsAgent, SocialAgent, RedditAgent, ResearchAgent, MacroAgent, OnchainAgent, MarketAgent
 from ..services.opportunity_radar import build_opportunity_radar
+from ..services.live_markets import LiveMarketService
+from ..services.forecast_review import review_forecast
 from ..services.market_search import MarketSearchService
 from ..services.outcome_graph import OutcomeGraphService
 from ..services.robinhood_stock_tokens import RobinhoodStockTokenClient
@@ -244,6 +246,7 @@ class ForecastPipeline:
         self.config = config
         self.provider_manager = ProviderManager(config)
         self.source_manager = SourceManager(config, provider_manager=self.provider_manager)
+        self.live_markets = LiveMarketService(self.source_manager.gamma_client, self.source_manager.clob_client, self.source_manager.kalshi_client)
         self.consensus_engine = ConsensusEngine(config)
         self.memory_store = memory_store or MemoryStore(config)
         self.proof_outbox = SupabaseProofOutbox(
@@ -455,6 +458,26 @@ class ForecastPipeline:
                         },
                     ))
 
+        if normalized_mode not in PRICE_DIRECTION_MODES and market_id != "custom_market":
+            market_evidence = next((item for item in evidence if item.source_name in {"polymarket", "kalshi"}), None)
+            effective_venue = venue or ((market_evidence.metadata or {}).get("venue") if market_evidence else "") or ""
+            selected_quote = await self.live_markets.snapshot(market_id, effective_venue)
+            if selected_quote.get("status") in {"closed", "select_contract", "unsupported_outcomes"}:
+                raise ValueError("Select an open binary market contract, rather than a multi-contract event.")
+            if selected_quote.get("status") == "live":
+                if market_evidence:
+                    market_evidence.metadata.update({"current_price": selected_quote["probability"],
+                        "outcomes": [{"label": "Yes", "price": selected_quote["probability"]}],
+                        "quote_observed_at": selected_quote["observed_at"]})
+                evidence.append(Evidence(
+                    source_name=str(effective_venue).lower(), title=selected_quote.get("question"),
+                    url=selected_quote.get("url"), relevance_score=1.0,
+                    content=f"Selected contract live orderbook midpoint: {selected_quote['probability']}. "
+                            f"Observed: {selected_quote['observed_at']}. Settlement rules: {str(selected_quote.get('rules') or '')[:6000]}",
+                    metadata={"market_id": market_id, "venue": effective_venue,
+                              "current_price": selected_quote["probability"], "source_type": "live_contract_rules"},
+                ))
+
         # 2. Query active agents in parallel
         selected_agent_ids = set(runtime["selected_agents"]) if runtime else set(self.agents)
         active_agents = [agent for name, agent in self.agents.items() if name in selected_agent_ids]
@@ -571,6 +594,14 @@ class ForecastPipeline:
             except Exception as exc:
                 logger.warning("[ForecastPipeline] Outcome Graph unavailable: %s", exc)
                 result.metadata["outcome_graph"]["message"] = "Related market intelligence was unavailable."
+
+        if normalized_mode not in PRICE_DIRECTION_MODES and market_id != "custom_market":
+            review_venue = venue or result.metadata["opportunity_radar"].get("market", {}).get("venue") or ""
+            quote = await self.live_markets.snapshot(market_id, review_venue)
+            result.metadata["forecast_review"] = await review_forecast(
+                result, evidence, question, quote, self.provider_manager, self.config,
+                is_public_feed=is_public_feed,
+            )
 
         proof = build_forecast_envelope(
             result=result,

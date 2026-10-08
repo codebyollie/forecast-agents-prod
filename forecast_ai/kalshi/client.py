@@ -317,7 +317,8 @@ class KalshiClient:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    ob_data = data.get("orderbook", data)
+                    dollar_book = data.get("orderbook_fp")
+                    ob_data = dollar_book if isinstance(dollar_book, dict) else data.get("orderbook", data)
                     
                     def parse_price(raw: Any) -> float:
                         value = float(raw)
@@ -325,11 +326,11 @@ class KalshiClient:
 
                     yes_bids = [
                         KalshiBookLevel(price=parse_price(b[0]), size=float(b[1]))
-                        for b in ob_data.get("yes", []) if len(b) >= 2
+                        for b in ob_data.get("yes_dollars", ob_data.get("yes", [])) if len(b) >= 2
                     ]
                     no_bids = [
                         KalshiBookLevel(price=parse_price(b[0]), size=float(b[1]))
-                        for b in ob_data.get("no", []) if len(b) >= 2
+                        for b in ob_data.get("no_dollars", ob_data.get("no", [])) if len(b) >= 2
                     ]
                     # Kalshi exposes YES and NO bids. A YES ask is the
                     # complement of a NO bid, and vice versa.
@@ -341,6 +342,10 @@ class KalshiClient:
                         KalshiBookLevel(price=round(1.0 - level.price, 4), size=level.size)
                         for level in yes_bids
                     ]
+                    yes_bids.sort(key=lambda level: level.price, reverse=True)
+                    no_bids.sort(key=lambda level: level.price, reverse=True)
+                    yes_asks.sort(key=lambda level: level.price)
+                    no_asks.sort(key=lambda level: level.price)
 
                     spread = 0.0
                     midpoint = None

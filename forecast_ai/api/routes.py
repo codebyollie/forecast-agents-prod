@@ -9,7 +9,7 @@ import asyncio
 import logging
 import re
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from ..pipelines.forecast import ForecastPipeline
 from ..polymarket.gamma import GammaClient
@@ -82,6 +82,17 @@ class PredictionRequest(BaseModel):
     reference_price: Optional[float] = None
     asset_symbol: Optional[str] = None
 
+
+class LiveMarketRequest(BaseModel):
+    market_id: str = Field(min_length=1, max_length=180, pattern=r"^[A-Za-z0-9_-]+$")
+    venue: str = Field(pattern=r"^(Polymarket|Kalshi|polymarket|kalshi)$")
+
+
+class LiveMarketsRequest(BaseModel):
+    markets: List[LiveMarketRequest] = Field(min_length=1, max_length=12)
+    notional: float = Field(default=100, ge=1, le=10000, allow_inf_nan=False)
+
+
 class CalibrateRequest(BaseModel):
     agent_name: str
     outcome_correct: bool
@@ -97,6 +108,13 @@ def get_pipeline() -> ForecastPipeline:
     if _pipeline is None:
         raise HTTPException(status_code=500, detail="Forecast pipeline is not initialized.")
     return _pipeline
+
+
+@router.post("/markets/live")
+async def live_markets(request: Request, req: LiveMarketsRequest, pipeline: ForecastPipeline = Depends(get_pipeline)):
+    enforce_request_access(request)
+    quotes = await asyncio.gather(*(pipeline.live_markets.snapshot(m.market_id, m.venue, req.notional) for m in req.markets))
+    return {"quotes": quotes, "refresh_after_seconds": 30}
 
 def get_search_service(pipeline: ForecastPipeline = Depends(get_pipeline)) -> MarketSearchService:
     return MarketSearchService(
@@ -538,6 +556,8 @@ async def predict(
             "market_context": result.metadata.get("market_context", []),
             "opportunity_radar": result.metadata.get("opportunity_radar", {}),
             "outcome_graph": result.metadata.get("outcome_graph", {}),
+            "forecast_review": result.metadata.get("forecast_review"),
+            "market_price": result.metadata.get("opportunity_radar", {}).get("market", {}).get("probability"),
             "proof": result.metadata.get("proof", {}),
             "agent_runtime": result.metadata.get("agent_runtime"),
             "analysis_mode": result.metadata.get("analysis_mode"),

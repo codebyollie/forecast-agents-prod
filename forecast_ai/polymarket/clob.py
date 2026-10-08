@@ -20,6 +20,8 @@ class ClobClient:
                     data = resp.json()
                     bids = [BookLevel(price=float(b.get("price", 0)), size=float(b.get("size", 0))) for b in data.get("bids", [])]
                     asks = [BookLevel(price=float(a.get("price", 0)), size=float(a.get("size", 0))) for a in data.get("asks", [])]
+                    bids.sort(key=lambda level: level.price, reverse=True)
+                    asks.sort(key=lambda level: level.price)
                     
                     # Spread
                     spread = 0.0

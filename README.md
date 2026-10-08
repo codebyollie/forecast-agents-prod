@@ -52,6 +52,8 @@ flowchart LR
 - Live market discovery and search across **Polymarket** and **Kalshi**.
 - Real-time prices, bid/ask spreads, liquidity, volume, outcomes, and orderbook context.
 - **Opportunity Radar** comparing market probability with the agent consensus.
+- **Forecast Live** — a personal watchlist of Polymarket and Kalshi forecasts, refreshed orderbook quotes, depth-aware YES/NO price gaps, opt-in reforecasting on a 3 percentage-point move, and a timeline of saved probabilities and newly cited sources. Monitoring runs while the workspace is visible; automatic reforecasts use the existing account quota.
+- **Independent forecast review** — a Challenger and Resolution Analyst review the consensus in parallel, alongside source-metadata and execution-depth checks. Missing settlement rules, unavailable reviewers, and unverified fees remain explicit; the original consensus and previous runs stay recorded.
 - Cross-market matching for related contracts and conflicting prices.
 - Optional research, social, smart-money, and trader-intelligence providers with visible provider status and graceful fallbacks.
 - Read-only market integrations by default; no server-side wallet signing.
