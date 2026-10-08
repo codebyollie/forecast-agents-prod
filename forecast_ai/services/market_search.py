@@ -751,7 +751,9 @@ class MarketSearchService:
                                     label = token_label
                             if not label:
                                 label = m.question or "Outcome"
-                            outcomes.append({"label": label, "price": round(price, 4)})
+                            outcomes.append({"label": label, "price": round(price, 4),
+                                "market_id": m.slug or m.id, "question": m.question,
+                                "end_date": m.end_date_iso})
                         total_vol += float(m.volume)
                         total_vol_24h += float(m.raw_data.get("volume24hr") or 0)
                         total_liq += float(m.liquidity)

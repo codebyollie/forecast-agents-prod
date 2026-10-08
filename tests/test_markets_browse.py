@@ -295,6 +295,8 @@ async def test_polymarket_event_grouping_uses_group_item_titles(search_service):
     res = await search_service.browse_markets(venue="polymarket")
 
     assert [outcome["label"] for outcome in res["results"][0]["outcomes"]] == ["Team A", "Draw", "Team B"]
+    assert [outcome["market_id"] for outcome in res["results"][0]["outcomes"]] == [m.slug or m.id for m in markets]
+    assert [outcome["question"] for outcome in res["results"][0]["outcomes"]] == [m.question for m in markets]
 
 
 @pytest.mark.asyncio
