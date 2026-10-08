@@ -84,7 +84,7 @@ class PredictionRequest(BaseModel):
 
 
 class LiveMarketRequest(BaseModel):
-    market_id: str = Field(min_length=1, max_length=180, pattern=r"^[A-Za-z0-9_-]+$")
+    market_id: str = Field(min_length=1, max_length=180, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
     venue: str = Field(pattern=r"^(Polymarket|Kalshi|polymarket|kalshi)$")
 
 

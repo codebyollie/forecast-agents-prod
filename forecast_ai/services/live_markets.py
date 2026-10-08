@@ -57,7 +57,7 @@ class LiveMarketService:
 
     async def snapshot(self, market_id: str, venue: str, notional: float = 100) -> dict:
         venue = venue.lower()
-        if venue not in {"polymarket", "kalshi"} or not re.fullmatch(r"[A-Za-z0-9_-]{1,180}", market_id):
+        if venue not in {"polymarket", "kalshi"} or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,179}", market_id):
             return {"market_id": market_id, "venue": venue, "status": "unsupported"}
         key = (venue, market_id, notional)
         # Prune both cache and locks together; retain locks while a request holds them.

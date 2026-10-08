@@ -62,6 +62,17 @@ async def test_quote_cache_coalesces_and_keeps_notional_separate():
 
 
 @pytest.mark.asyncio
+async def test_decimal_strike_ticker_is_allowed_but_path_traversal_is_not():
+    service = LiveMarketService(AsyncMock(), AsyncMock(), AsyncMock())
+    service._fetch = AsyncMock(return_value={"status": "live"})
+    ticker = "KXTEMPMIAH-26OCT0812-T88.99"
+    assert (await service.snapshot(ticker, "Kalshi"))["status"] == "live"
+    service._fetch.assert_awaited_once_with(ticker, "kalshi", 100)
+    for invalid in ("..", "../secret", "contract?other=1", "contract/extra"):
+        assert (await service.snapshot(invalid, "Kalshi"))["status"] == "unsupported"
+
+
+@pytest.mark.asyncio
 async def test_non_yes_no_market_is_not_silently_priced():
     gamma = AsyncMock()
     gamma.fetch_market_by_slug.return_value = SimpleNamespace(active=True, closed=False, tokens=[{"outcome": "Team A", "token_id": "1"}, {"outcome": "Team B", "token_id": "2"}])
@@ -90,6 +101,7 @@ def test_live_api_requires_key_and_bounds_batch_and_notional(monkeypatch):
         assert client.post("/markets/live", json=payload).status_code == 401
         headers = {"x-api-key": "test-only"}
         assert client.post("/markets/live", json=payload, headers=headers).status_code == 200
+        assert client.post("/markets/live", json={"markets": [{"market_id": "KXTEMPMIAH-26OCT0812-T88.99", "venue": "kalshi"}]}, headers=headers).status_code == 200
         assert client.post("/markets/live", json={**payload, "notional": -1}, headers=headers).status_code == 422
         assert client.post("/markets/live", json={"markets": payload["markets"] * 13}, headers=headers).status_code == 422
         assert client.post("/markets/live", json={"markets": [{"market_id": "../secret", "venue": "kalshi"}]}, headers=headers).status_code == 422
