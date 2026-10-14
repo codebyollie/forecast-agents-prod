@@ -27,3 +27,14 @@ def test_default_and_fallback_provider_defaults():
     cfg = ForecastConfig()
     assert cfg.default_provider == "openai"
     assert cfg.fallback_providers == ["gemini", "anthropic", "openrouter"]
+
+
+def test_bravado_stays_disabled_when_old_settings_enable_it(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("bravado:\n  enabled: true\n", encoding="utf-8")
+    monkeypatch.setenv("BRAVADO_ENABLED", "true")
+    monkeypatch.setenv("BRAVADO_API_TOKEN", "retired-test-token")
+
+    config = ConfigStore(config_file).load_config()
+    assert config.bravado.enabled is False
+    assert config.bravado.api_token == ""

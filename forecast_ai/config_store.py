@@ -182,10 +182,10 @@ class ConfigStore:
             config.falcon.smart_money_enabled = os.environ["FALCON_SMART_MONEY_ENABLED"].lower() in ("true", "1", "yes")
 
         # Bravado partner trader-intelligence overrides
-        if os.environ.get("BRAVADO_API_TOKEN"):
-            config.bravado.api_token = os.environ["BRAVADO_API_TOKEN"]
-        if os.environ.get("BRAVADO_ENABLED"):
-            config.bravado.enabled = os.environ["BRAVADO_ENABLED"].lower() in ("true", "1", "yes")
+        # Bravado is retired for the prediction-only release. Ignore a stale
+        # Railway flag so no trader-analytics requests leave this service.
+        config.bravado.enabled = False
+        config.bravado.api_token = ""
         if os.environ.get("BRAVADO_API_URL"):
             config.bravado.api_url = os.environ["BRAVADO_API_URL"].rstrip("/")
         if os.environ.get("BRAVADO_LEADERBOARD_WINDOW"):
@@ -257,6 +257,8 @@ class ConfigStore:
         if os.environ.get("EXA_SEARCH_TYPE"):
             config.exa.search_type = os.environ["EXA_SEARCH_TYPE"].strip().lower()
 
+        config.bravado.enabled = False
+        config.bravado.api_token = ""
         return config
 
     def load_config(self) -> ForecastConfig:
